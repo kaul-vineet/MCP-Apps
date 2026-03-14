@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Widget UX Test</title>
+<style>
+  body    { font-family: system-ui, sans-serif; background: #f0f0f0; padding: 24px; }
+  h2      { margin-bottom: 16px; }
+  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  button  { padding: 8px 16px; border: none; border-radius: 6px; background: #0066cc; color: white; cursor: pointer; font-size: 13px; }
+  button:hover { background: #0052a3; }
+  button.dark  { background: #333; }
+  button.dark:hover { background: #111; }
+  button.secondary { background: #888; }
+  .hint   { font-size: 12px; color: #666; margin-bottom: 16px; }
+  .log    { font-size: 11px; color: #555; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-top: 12px; max-height: 120px; overflow-y: auto; font-family: monospace; }
+  .frame-wrapper { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; max-width: 820px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  iframe  { width: 100%; border: none; min-height: 60px; display: block; }
+</style>
+</head>
+<body>
+
+<h2>Flight Tracker — Widget UX Test</h2>
+
+<div class="controls">
+  <button onclick="sendFlights()">Send Mock Flights (3 rows)</button>
+  <button class="secondary" onclick="sendEmpty()">Send Empty Result</button>
+  <button class="dark" onclick="toggleTheme()">Toggle Dark / Light</button>
+</div>
+<p class="hint">Click any flight row in the widget to trigger live state fetch (mocked below).</p>
+
+<div class="frame-wrapper">
+  <iframe id="widget" src="../web/widget.html"></iframe>
+</div>
+
+<div class="log" id="log">— event log —</div>
+
+<script>
+  var isDark = false;
+
+  var MOCK_FLIGHTS = {
+    icao24: "3c675a",
+    total_flights: 3,
+    flights: [
+      { callsign: "DLH08H",  from: "LOWG", to: "EDDF", departed: "2024-01-15 05:28 UTC", arrived: "2024-01-15 06:38 UTC" },
+      { callsign: "DLH1234", from: "EDDF", to: "EGLL", departed: "2024-01-15 10:10 UTC", arrived: "2024-01-15 11:25 UTC" },
+      { callsign: null,      from: "EGLL", to: "EDDM", departed: "2024-01-15 14:00 UTC", arrived: "2024-01-15 16:20 UTC" }
+    ]
+  };
+
+  var MOCK_EMPTY = { icao24: "3c675a", total_flights: 0, flights: [] };
+
+  // Mock state returned when widget calls get_aircraft_state
+  var MOCK_STATE = {
+    icao24:          "3c675a",
+    found:           true,
+    callsign:        "DLH08H",
+    origin_country:  "Germany",
+    latitude:        48.1351,
+    longitude:       11.5820,
+    altitude_m:      9450,
+    altitude_ft:     31003,
+    on_ground:       false,
+    velocity_kmh:    842,
+    heading_deg:     270,
+    heading_compass: "W",
+    vertical_rate:   -2.3,
+    last_contact:    "2024-01-15 06:35 UTC"
+  };
+
+  function post(data) {
+    document.getElementById('widget').contentWindow.postMessage(data, '*');
+  }
+
+  function log(msg) {
+    var el = document.getElementById('log');
+    el.innerHTML += '<br>' + new Date().toLocaleTimeString() + ' ' + msg;
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function sendFlights() {
+    post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_FLIGHTS } });
+    log('→ Sent mock flights data');
+  }
+
+  function sendEmpty() {
+    post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_EMPTY } });
+    log('→ Sent empty result');
+  }
+
+  function toggleTheme() {
+    isDark = !isDark;
+    document.body.style.background = isDark ? '#1a1a1a' : '#f0f0f0';
+    document.body.style.color      = isDark ? '#f0f0f0' : '#111';
+    post({ jsonrpc: '2.0', method: 'ui/notifications/theme-change', params: { theme: isDark ? 'dark' : 'light' } });
+    log('→ Theme: ' + (isDark ? 'dark' : 'light'));
+  }
+
+  // Handle messages FROM the widget
+  window.addEventListener('message', function(e) {
+    var msg = e.data;
+    if (!msg) return;
+
+    // callTool request from widget
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/callTool') {
+      log('← callTool: ' + msg.params.name + '(' + JSON.stringify(msg.params.args) + ')');
+      // Simulate network delay
+      setTimeout(function() {
+        post({ jsonrpc: '2.0', id: msg.id, result: MOCK_STATE });
+        log('→ Returned mock state for ' + msg.params.args.icao24);
+      }, 600);
+      return;
+    }
+
+    // Height notification from widget
+    if (msg.method === 'ui/notifyIntrinsicHeight') {
+      document.getElementById('widget').style.height = msg.params.height + 'px';
+    }
+  });
+</script>
+</body>
+</html>

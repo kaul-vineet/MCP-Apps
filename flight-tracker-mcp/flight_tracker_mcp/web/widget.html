@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<style>
+  :root {
+    --color-bg:         #ffffff;
+    --color-surface:    #f5f5f5;
+    --color-text:       #111111;
+    --color-text-muted: #767676;
+    --color-border:     #e0e0e0;
+    --color-header-bg:  #efefef;
+    --color-hover:      #e8f0fe;
+    --color-expanded:   #f0f7ff;
+    --color-accent:     #0066cc;
+    --color-mcp-bar:    #0066cc;
+    --radius:           8px;
+    --space-xs:         4px;
+    --space-sm:         8px;
+    --space-md:         12px;
+    --space-lg:         16px;
+  }
+  [data-theme="dark"] {
+    --color-bg:         #1a1a1a;
+    --color-surface:    #1e1e1e;
+    --color-text:       #f0f0f0;
+    --color-text-muted: #a0a0a0;
+    --color-border:     #333333;
+    --color-header-bg:  #2a2a2a;
+    --color-hover:      #1a2a3a;
+    --color-expanded:   #162030;
+    --color-accent:     #4da3ff;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    background: var(--color-bg);
+    color: var(--color-text);
+    padding: var(--space-md);
+  }
+
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .card-header {
+    padding: var(--space-sm) var(--space-md);
+    background: var(--color-header-bg);
+    border-bottom: 1px solid var(--color-border);
+    font-weight: 600;
+    font-size: 13px;
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    font-weight: 400;
+    margin-left: 8px;
+  }
+
+  table { width: 100%; border-collapse: collapse; }
+
+  th {
+    padding: var(--space-xs) var(--space-md);
+    background: var(--color-header-bg);
+    color: var(--color-text-muted);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    text-align: left;
+  }
+
+  tr.flight-row {
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  tr.flight-row:hover { background: var(--color-hover); }
+  tr.flight-row.expanded { background: var(--color-hover); }
+
+  td {
+    padding: var(--space-sm) var(--space-md);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text);
+  }
+
+  td.toggle-cell {
+    width: 24px;
+    padding-right: 0;
+    color: var(--color-text-muted);
+    font-size: 10px;
+  }
+
+  tr.detail-row td {
+    background: var(--color-expanded);
+    border-bottom: 1px solid var(--color-border);
+    padding: var(--space-md);
+  }
+
+  .detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--space-sm) var(--space-lg);
+  }
+
+  .detail-item { display: flex; flex-direction: column; gap: 2px; }
+  .detail-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--color-text-muted);
+  }
+  .detail-value { font-size: 13px; font-weight: 500; color: var(--color-text); }
+
+  .map-link {
+    display: inline-block;
+    margin-top: var(--space-sm);
+    font-size: 12px;
+    color: var(--color-accent);
+    text-decoration: none;
+  }
+  .map-link:hover { text-decoration: underline; }
+
+  .loading {
+    color: var(--color-text-muted);
+    font-style: italic;
+    font-size: 12px;
+  }
+
+  .callsign-link {
+    color: var(--color-accent);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .callsign-link:hover { text-decoration: underline; }
+
+  .empty {
+    padding: var(--space-lg);
+    color: var(--color-text-muted);
+    text-align: center;
+  }
+
+  tr:last-child td { border-bottom: none; }
+
+  /* ── MCP identity bar ── */
+  .mcp-bar {
+    height: 3px;
+    background: var(--color-mcp-bar);
+    border-radius: var(--radius) var(--radius) 0 0;
+  }
+
+  .mcp-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-xs) var(--space-md);
+    border-top: 1px solid var(--color-border);
+    background: var(--color-header-bg);
+  }
+
+  .mcp-badge {
+    font-size: 10px;
+    color: var(--color-text-muted);
+    letter-spacing: 0.3px;
+  }
+
+  .mcp-badge strong {
+    color: var(--color-accent);
+    font-weight: 600;
+  }
+
+  .mcp-source {
+    font-size: 10px;
+    color: var(--color-text-muted);
+  }
+</style>
+</head>
+<body>
+<div id="root"><div class="empty">Loading flight data...</div></div>
+
+<script>
+  // ── Theme ──────────────────────────────────────────────────────────────────
+  function applyTheme(theme) {
+    document.body.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+  }
+  if (window.openai && window.openai.theme) { applyTheme(window.openai.theme); }
+
+  // ── callTool abstraction ───────────────────────────────────────────────────
+  // Works with window.openai.callTool (M365/ChatGPT) AND postMessage fallback (test harness)
+  var pendingCalls = {};
+  var callId = 0;
+
+  function callTool(name, args) {
+    if (window.openai && window.openai.callTool) {
+      return window.openai.callTool(name, args).then(function(r) {
+        return r.structuredContent;
+      });
+    }
+    // postMessage fallback
+    return new Promise(function(resolve, reject) {
+      var id = ++callId;
+      pendingCalls[id] = { resolve: resolve, reject: reject };
+      window.parent.postMessage({
+        jsonrpc: '2.0', id: id,
+        method: 'ui/callTool',
+        params: { name: name, args: args }
+      }, '*');
+      setTimeout(function() {
+        if (pendingCalls[id]) {
+          delete pendingCalls[id];
+          reject(new Error('Timed out'));
+        }
+      }, 10000);
+    });
+  }
+
+  // ── Notify host of our height ──────────────────────────────────────────────
+  function notifyHeight() {
+    var h = document.body.scrollHeight;
+    if (window.openai && window.openai.notifyIntrinsicHeight) {
+      window.openai.notifyIntrinsicHeight({ height: h });
+    }
+    window.parent.postMessage({ method: 'ui/notifyIntrinsicHeight', params: { height: h } }, '*');
+  }
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  var flightData  = null;
+  var expandedIdx = -1;   // which row is currently expanded (-1 = none)
+
+  // ── Render flight table ────────────────────────────────────────────────────
+  function render(data) {
+    flightData = data;
+    var root = document.getElementById('root');
+
+    if (!data || !data.flights) {
+      root.innerHTML = '<div class="empty">No data received.</div>';
+      notifyHeight(); return;
+    }
+    if (data.flights.length === 0) {
+      root.innerHTML = '<div class="empty">No flights found for this aircraft in the selected period.</div>';
+      notifyHeight(); return;
+    }
+
+    var count = data.flights.length;
+    var rows  = data.flights.map(function(f, i) {
+      var callsign = f.callsign
+        ? '<a class="callsign-link" href="https://www.flightradar24.com/' + f.callsign + '" target="_blank">' + f.callsign + '</a>'
+        : '&mdash;';
+      return '<tr class="flight-row" data-idx="' + i + '" onclick="toggleRow(' + i + ')">' +
+        '<td class="toggle-cell">&#9654;</td>' +
+        '<td>' + callsign + '</td>' +
+        '<td>' + (f.from || '&mdash;') + '</td>' +
+        '<td>' + (f.to   || '&mdash;') + '</td>' +
+        '<td>' + f.departed + '</td>' +
+        '<td>' + f.arrived  + '</td>' +
+      '</tr>' +
+      '<tr class="detail-row" id="detail-' + i + '" style="display:none">' +
+        '<td colspan="6"><div class="loading">Fetching live state...</div></td>' +
+      '</tr>';
+    }).join('');
+
+    root.innerHTML =
+      '<div class="card">' +
+        '<div class="mcp-bar"></div>' +
+        '<div class="card-header">&#9992; ' + data.icao24.toUpperCase() +
+          ' &mdash; ' + count + ' flight' + (count !== 1 ? 's' : '') +
+          '<span class="hint">Click a row for live state</span>' +
+        '</div>' +
+        '<table>' +
+          '<thead><tr>' +
+            '<th></th>' +
+            '<th>Callsign</th><th>From</th><th>To</th>' +
+            '<th>Departed (UTC)</th><th>Arrived (UTC)</th>' +
+          '</tr></thead>' +
+          '<tbody>' + rows + '</tbody>' +
+        '</table>' +
+        '<div class="mcp-footer">' +
+          '<span class="mcp-badge">&#9889; <strong>MCP Widget</strong> &middot; flight-tracker-mcp</span>' +
+          '<span class="mcp-source">Data: OpenSky Network</span>' +
+        '</div>' +
+      '</div>';
+
+    notifyHeight();
+  }
+
+  // ── Toggle expanded detail row ─────────────────────────────────────────────
+  function toggleRow(idx) {
+    var detailRow  = document.getElementById('detail-' + idx);
+    var flightRow  = document.querySelector('[data-idx="' + idx + '"]');
+    var toggleCell = flightRow.querySelector('.toggle-cell');
+
+    if (expandedIdx === idx) {
+      // Collapse
+      detailRow.style.display = 'none';
+      flightRow.classList.remove('expanded');
+      toggleCell.innerHTML = '&#9654;';
+      expandedIdx = -1;
+      notifyHeight();
+      return;
+    }
+
+    // Collapse previously expanded
+    if (expandedIdx >= 0) {
+      var prev = document.getElementById('detail-' + expandedIdx);
+      var prevRow = document.querySelector('[data-idx="' + expandedIdx + '"]');
+      if (prev) prev.style.display = 'none';
+      if (prevRow) {
+        prevRow.classList.remove('expanded');
+        prevRow.querySelector('.toggle-cell').innerHTML = '&#9654;';
+      }
+    }
+
+    // Expand this row
+    expandedIdx = idx;
+    flightRow.classList.add('expanded');
+    toggleCell.innerHTML = '&#9660;';
+    detailRow.style.display = '';
+    detailRow.querySelector('td').innerHTML = '<div class="loading">Fetching live state...</div>';
+    notifyHeight();
+
+    // Call the tool
+    var icao24 = flightData.icao24;
+    callTool('get_aircraft_state', { icao24: icao24 })
+      .then(function(state) { renderDetail(idx, state); })
+      .catch(function(err)  { renderDetailError(idx, err.message); });
+  }
+
+  // ── Render expanded detail ─────────────────────────────────────────────────
+  function renderDetail(idx, state) {
+    var cell = document.querySelector('#detail-' + idx + ' td');
+    if (!cell) return;
+
+    if (!state || !state.found) {
+      cell.innerHTML = '<div class="loading">No live state available — aircraft may be on ground or out of coverage.</div>';
+      notifyHeight(); return;
+    }
+
+    var statusIcon = state.on_ground ? '🛬 On ground' : '✈ Airborne';
+    var mapUrl = (state.latitude != null && state.longitude != null)
+      ? 'https://maps.google.com/?q=' + state.latitude + ',' + state.longitude
+      : null;
+
+    var items = [
+      { label: 'Status',    value: statusIcon },
+      { label: 'Altitude',  value: state.altitude_ft != null ? state.altitude_ft.toLocaleString() + ' ft  (' + state.altitude_m + ' m)' : '—' },
+      { label: 'Speed',     value: state.velocity_kmh != null ? state.velocity_kmh + ' km/h' : '—' },
+      { label: 'Heading',   value: state.heading_deg != null ? state.heading_deg + '° ' + state.heading_compass : '—' },
+      { label: 'Country',   value: state.origin_country || '—' },
+      { label: 'Last Contact', value: state.last_contact || '—' },
+    ];
+
+    var grid = items.map(function(item) {
+      return '<div class="detail-item">' +
+        '<span class="detail-label">' + item.label + '</span>' +
+        '<span class="detail-value">' + item.value + '</span>' +
+      '</div>';
+    }).join('');
+
+    cell.innerHTML = '<div class="detail-grid">' + grid + '</div>' +
+      (mapUrl ? '<a class="map-link" href="' + mapUrl + '" target="_blank">📍 View on Google Maps</a>' : '');
+
+    notifyHeight();
+  }
+
+  function renderDetailError(idx, msg) {
+    var cell = document.querySelector('#detail-' + idx + ' td');
+    if (cell) cell.innerHTML = '<div class="loading">Error: ' + msg + '</div>';
+    notifyHeight();
+  }
+
+  // ── Receive messages from host / test harness ──────────────────────────────
+  window.addEventListener('message', function(event) {
+    if (event.source !== window.parent) return;
+    var msg = event.data;
+    if (!msg) return;
+
+    // Tool result data (initial render)
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/tool-result') {
+      render(msg.params.structuredContent);
+      return;
+    }
+
+    // Theme change
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/theme-change') {
+      applyTheme(msg.params.theme);
+      return;
+    }
+
+    // callTool response from test harness
+    if (msg.jsonrpc === '2.0' && msg.id && pendingCalls[msg.id]) {
+      var cb = pendingCalls[msg.id];
+      delete pendingCalls[msg.id];
+      if (msg.result) { cb.resolve(msg.result); }
+      else { cb.reject(new Error(msg.error || 'Tool call failed')); }
+      return;
+    }
+  }, { passive: true });
+
+  // ── window.openai.toolOutput (M365 + modern ChatGPT) ──────────────────────
+  // M365 injects window.openai after the script runs — poll until available
+  var rendered = false;
+  function tryRenderFromOpenAI() {
+    if (rendered) return;
+    if (window.openai) {
+      if (window.openai.theme)      { applyTheme(window.openai.theme); }
+      if (window.openai.toolOutput) {
+        var out = window.openai.toolOutput;
+        // M365 may deliver structuredContent directly or wrapped
+        var data = (out && out.structuredContent !== undefined) ? out.structuredContent : out;
+        render(data);
+        rendered = true;
+      }
+    }
+  }
+
+  tryRenderFromOpenAI();  // try immediately
+
+  if (!rendered) {
+    var attempts = 0;
+    var poll = setInterval(function() {
+      attempts++;
+      tryRenderFromOpenAI();
+      if (rendered || attempts >= 30) { clearInterval(poll); }  // give up after 3s
+    }, 100);
+  }
+</script>
+</body>
+</html>

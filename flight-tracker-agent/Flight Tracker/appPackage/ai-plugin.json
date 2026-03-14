@@ -1,0 +1,36 @@
+{
+    "$schema": "https://aka.ms/json-schemas/copilot-extensions/v2.1/plugin.schema.json",
+    "schema_version": "v2.4",
+    "name_for_human": "Flight Tracker",
+    "description_for_human": "Flight Tracker${{APP_NAME_SUFFIX}}",
+    "contact_email": "publisher-email@example.com",
+    "namespace": "flighttracker",
+    "functions": [
+        {
+            "name": "get_flights_by_aircraft",
+            "description": "Retrieve flight history for an aircraft by its ICAO 24-bit transponder address. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Date range must not exceed 2 days. Only flights from the previous day or earlier are available."
+        },
+        {
+            "name": "get_aircraft_state",
+            "description": "Get the last known live state of an aircraft: position, altitude, speed, heading. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Returns current live data — not historical position at time of a past flight."
+        }
+    ],
+    "runtimes": [
+        {
+            "type": "RemoteMCPServer",
+            "spec": {
+                "url": "https://flight-tracker-3000.inc1.devtunnels.ms/mcp",
+                "mcp_tool_description": {
+                    "file": "mcp-tools.json"
+                }
+            },
+            "run_for_functions": [
+                "get_aircraft_state",
+                "get_flights_by_aircraft"
+            ],
+            "auth": {
+                "type": "None"
+            }
+        }
+    ]
+}
