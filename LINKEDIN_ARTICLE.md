@@ -129,14 +129,6 @@ If you have built on M365 or Teams, you have used Adaptive Cards. They work. But
 
 Building this on early-stage tooling with sparse documentation involved real friction. The full challenges table — including all undocumented gotchas, error codes, root causes, and fixes — is documented in the repository README under [Critical Troubleshooting → Build and deployment challenges](https://github.com/your-org/flight-tracker-mcp#critical-troubleshooting).
 
-The three issues that will silently prevent the widget from rendering in M365, and that took the longest to diagnose:
-
-| Issue | Root cause |
-|---|---|
-| Widget never appears | `_meta` placed on `CallToolResult` — M365 reads it from `tools/list` at discovery time, not from the call result |
-| Widget disappears after server fix | `mcp-tools.json` is a static snapshot; it had no `_meta` and was not re-provisioned after the server was corrected |
-| Widget receives data, renders nothing | M365 delivers `structuredContent` unwrapped; widget must handle both `toolOutput.structuredContent` and `toolOutput` directly |
-
 ---
 
 ## 🚀 What this actually unlocks
