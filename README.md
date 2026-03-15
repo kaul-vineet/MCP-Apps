@@ -422,7 +422,7 @@ Verify the following before proceeding to M365:
 
 ---
 
-### Step 7 — The Widget (`widget.html`)
+### Step 7 — Validate the Widget (`widget.html`)
 
 The widget is served live from the MCP server — no re-provision is needed when it changes. Developers extending it should be familiar with:
 
@@ -451,6 +451,16 @@ The widget is served live from the MCP server — no re-provision is needed when
 6. Update `mcp-tools.json` — **see [Issue 2](#issue-2----mcp-toolsjson-must-include-_meta) before proceeding**
 7. Agents Toolkit → Lifecycle → **Provision**
 8. Test at [https://m365.cloud.microsoft/chat](https://m365.cloud.microsoft/chat)
+
+**Using the Flight Tracker:**
+
+1. Click the agent picker and select **Flight Tracker**
+2. Type a prompt — e.g. *Show me flights for aircraft 3C675A on 15 January 2024*
+3. A flight table renders directly in the chat — click any row to expand it and see live altitude, speed, and heading
+4. Click a callsign link to view the flight on FlightRadar24
+5. Try the pre-built prompts: *Analyse the flying pattern for 3C675A over the last 2 days* or *Give me a full flight briefing for 3C675A today*
+
+> 📝 **ICAO24 codes** are 6-character hex identifiers (e.g. `3c675a`) that uniquely identify an aircraft. Find them on FlightRadar24 or FlightAware by searching a tail number or flight.
 
 ---
 
