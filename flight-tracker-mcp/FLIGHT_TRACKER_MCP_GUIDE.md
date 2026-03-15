@@ -170,11 +170,12 @@ Supported APIs:
 flight-tracker-mcp/
 ├── flight_tracker_mcp/
 │   ├── __init__.py
+│   ├── __main__.py
 │   ├── server.py          # FastMCP server — tools, resource, prompts
+│   ├── tests/
+│   │   └── widget_test.html   # Local test harness — no M365 needed
 │   └── web/
 │       └── widget.html    # Self-contained HTML widget (no build step)
-├── tests/
-│   └── widget_test.html   # Local test harness — no M365 needed
 ├── .env                   # OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET
 └── pyproject.toml
 ```
@@ -183,12 +184,20 @@ M365 Declarative Agent project (separate):
 
 ```
 flight-tracker-agent/
-└── Flight Tracker/
-    └── appPackage/
-        ├── declarativeAgent.json
-        ├── ai-plugin.json         # MCP runtime URL + function list
-        ├── mcp-tools.json         # tools/list snapshot — CRITICAL (see Critical Troubleshooting)
-        └── instruction.txt        # System prompt for the agent
+├── appPackage/
+│   ├── declarativeAgent.json
+│   ├── ai-plugin.json         # MCP runtime URL + function list
+│   ├── manifest.json          # Teams/M365 app manifest
+│   ├── mcp-tools.json         # tools/list snapshot — CRITICAL (see Critical Troubleshooting)
+│   ├── instruction.txt        # System prompt for the agent
+│   ├── color.png
+│   └── outline.png
+├── env/
+│   ├── .env.dev
+│   └── .env.dev.user
+├── .vscode/
+│   └── mcp.json               # MCP server config for ATK
+└── m365agents.yml             # DA lifecycle stages for ATK
 ```
 
 ---
