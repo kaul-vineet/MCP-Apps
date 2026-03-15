@@ -27,7 +27,7 @@
 - [App Functionality](#app-functionality)
 - [What Are MCP Apps?](#what-are-mcp-apps)
 - [Project Structure](#project-structure)
-- [Key Scripts](#key-scripts)
+- [Code Walkthrough](#code-walkthrough)
 - [Prerequisites](#prerequisites)
 - [Set-up](#set-up)
 - [Critical Troubleshooting](#critical-troubleshooting)
@@ -202,7 +202,7 @@ flight-tracker-agent/
 
 ---
 
-## Key Scripts
+## Code Walkthrough
 
 ### `server.py` — The MCP Server
 
