@@ -39,53 +39,87 @@
 
 ## App Functionality
 
-A **Flight Tracker MCP server** that connects to Microsoft 365 Copilot (and ChatGPT) as a Declarative Agent. Given any aircraft's ICAO24 transponder code, the agent:
+A **Flight Tracker MCP server** that connects to Microsoft 365 Copilot (and ChatGPT) as a Declarative Agent. The agent supports three distinct workflows:
 
-1. Fetches flight history from the [OpenSky Network](https://opensky-network.org/) API
-2. Renders a **live interactive widget** — a flight table directly inside the Copilot chat
-3. On clicking any flight row, **calls back to the MCP server in real time** to retrieve the aircraft's live position, altitude, speed, and heading
-4. Applies light/dark theming automatically from the host
-5. Suppresses model text — the widget is the response
+1. **Aircraft history** — given an ICAO24 transponder code, fetches flight history and renders a flight table; a footer button calls back to retrieve the aircraft's current live state
+2. **Airport departures** — given an airport code and date, lists departing flights; clicking any row fetches the aircraft's live position inline
+3. **Airport arrivals** — given an airport code and date, lists arriving flights; clicking any row fetches the historical flight track inline
 
-The agent exposes two tools (`get_flights_by_aircraft`, `get_aircraft_state`) and three pre-built prompts (`lookup_flights`, `analyse_aircraft`, `flight_briefing`).
+All three workflows:
+- Render a **live interactive widget** directly inside the Copilot chat
+- Apply light/dark theming automatically from the host
+- Suppress model text — the widget is the response
+- Mark viewed rows with a green checkmark — visual confirmation of what has been checked
+
+The agent exposes **five tools** and **five pre-built prompts**.
 
 The UX is rather efficient: no walls of text, no redundant summaries. The widget speaks for itself — which is, frankly, more than can be said for most enterprise software.
 
-### End-to-End Data Flow
+### End-to-End Data Flows
 
+**Flow 1 — Aircraft flight history → live state**
 ```
-User types prompt
-       │
-       ▼
-[M365 Copilot LLM]
-  reads tools/list → sees _meta.ui.resourceUri on tool definition
+User: "Show flights for aircraft 3c675a"
        │
        ▼
 tools/call → get_flights_by_aircraft(icao24, begin_date, end_date)
+  → GET opensky-network.org/api/flights/aircraft
+  → structuredContent { icao24, total_flights, flights: [...] }
        │
        ▼
-[server.py]
-  → POST auth.opensky-network.org  (OAuth2 token)
-  → GET  opensky-network.org/api/flights/aircraft
-  → returns CallToolResult { content, structuredContent }
+Widget renders flight table (aircraft view)
+       │
+  [User clicks "Check Live State →" in footer]
        │
        ▼
-M365 fetches ui://widget/flights.html  (ReadResource)
-  → renders HTML in sandboxed iframe
-  → injects window.openai.toolOutput = structuredContent
+callTool("get_aircraft_state", { icao24 })
+  → GET opensky-network.org/api/states/all
+  → structuredContent { altitude, speed, heading, on_ground, ... }
        │
        ▼
-Widget renders flight table
-       │
-  [User clicks a row]
-       │
-       ▼
-window.openai.callTool("get_aircraft_state", { icao24 })
-  → [server.py] → GET opensky-network.org/api/states/all
-  → structuredContent { altitude, speed, heading, ... }
+Live state card appears in widget footer
+```
+
+**Flow 2 — Airport departures → live aircraft state**
+```
+User: "Show departures from Heathrow yesterday"
        │
        ▼
-Live aircraft state appears inline in the expanded row
+tools/call → get_airport_departures(airport, begin_date, end_date)
+  → GET opensky-network.org/api/flights/departure
+  → structuredContent { type: "departures", airport, flights: [{ icao24, first_seen_ts, ... }] }
+       │
+       ▼
+Widget renders departures table
+       │
+  [User clicks a flight row]
+       │
+       ▼
+callTool("get_aircraft_state", { icao24 })
+  → live state expands inline; row turns green with ✓
+```
+
+**Flow 3 — Airport arrivals → historical flight track**
+```
+User: "Show arrivals at JFK yesterday"
+       │
+       ▼
+tools/call → get_airport_arrivals(airport, begin_date, end_date)
+  → GET opensky-network.org/api/flights/arrival
+  → structuredContent { type: "arrivals", airport, flights: [{ icao24, first_seen_ts, ... }] }
+       │
+       ▼
+Widget renders arrivals table
+       │
+  [User clicks a flight row]
+       │
+       ▼
+callTool("get_aircraft_track", { icao24, time: first_seen_ts })
+  → GET opensky-network.org/api/tracks/all
+  → structuredContent { waypoints, start_time, end_time, first_position, last_position }
+       │
+       ▼
+Track detail expands inline; row turns green with ✓
 ```
 
 ---
@@ -216,7 +250,7 @@ async def flight_widget() -> str:
     return WIDGET_HTML
 ```
 
-**Tool registration** — both tools carry `meta={"ui": {"resourceUri": ...}}` on the decorator. This places `_meta` on the **tool definition** in `tools/list`, which is where M365 reads it:
+**Tool registration** — all tools carry `meta={"ui": {"resourceUri": ...}}` on the decorator. This places `_meta` on the **tool definition** in `tools/list`, which is where M365 reads it:
 
 ```python
 @mcp.tool(
@@ -232,14 +266,32 @@ async def get_flights_by_aircraft(icao24, begin_date, end_date) -> types.CallToo
 
 > ⚠️ **Critical** — `_meta` must be on the `@mcp.tool()` decorator, not in `CallToolResult`. See [Issue 1](#issue-1----meta-must-be-on-the-tool-definition-not-the-call-result).
 
-**Two tools:**
-- `get_flights_by_aircraft(icao24, begin_date, end_date)` — fetches flight history from OpenSky; returns callsign, departure/arrival airports, timestamps
-- `get_aircraft_state(icao24)` — fetches live state: position, altitude, speed, heading, on-ground status
+**Five tools:**
 
-**Three prompts** (pre-built conversation starters):
-- `lookup_flights` — flight history for a given date
+| Tool | OpenSky Endpoint | Widget View |
+|---|---|---|
+| `get_flights_by_aircraft(icao24, begin_date, end_date)` | `/flights/aircraft` | Aircraft view |
+| `get_aircraft_state(icao24)` | `/states/all` | State card (inline or standalone) |
+| `get_airport_departures(airport, begin_date, end_date)` | `/flights/departure` | Departures view |
+| `get_airport_arrivals(airport, begin_date, end_date)` | `/flights/arrival` | Arrivals view |
+| `get_aircraft_track(icao24, time)` | `/tracks/all` | Track detail (inline in arrivals row) |
+
+**Five prompts** (pre-built conversation starters):
+- `lookup_flights` — flight history for an aircraft on a given date
 - `analyse_aircraft` — two-day pattern analysis
 - `flight_briefing` — full briefing combining history and live state
+- `lookup_departures` — departures from an airport on a given date; offers live state follow-up
+- `lookup_arrivals` — arrivals at an airport on a given date; offers track follow-up with `first_seen_ts`
+
+**Example utterances:**
+
+| Prompt | Example |
+|---|---|
+| Aircraft history | "Show flights for aircraft 3c675a" |
+| Analyse aircraft | "Analyse aircraft 3c675a" |
+| Airport departures | "Show departures from EGLL yesterday" |
+| Airport arrivals | "Show arrivals at KJFK yesterday" |
+| Live state (direct) | "Where is aircraft 3c675a right now?" |
 
 **Entry point** — Streamable HTTP server on port 3000 with CORS middleware:
 
@@ -256,9 +308,25 @@ def main():
 
 A **single self-contained HTML file** with no build step, no framework, no bundler. Vanilla HTML and JavaScript, served directly by the MCP server as a resource and rendered inside a sandboxed iframe in Copilot chat.
 
+The widget supports **three view modes**, determined by the shape of `structuredContent`:
+
+| View Mode | Triggered by | Row click behaviour |
+|---|---|---|
+| `aircraft` | `{ icao24, flights[] }` | No row expansion; footer button calls `get_aircraft_state` |
+| `departures` | `{ type: "departures", flights[] }` | Click row → `get_aircraft_state` inline |
+| `arrivals` | `{ type: "arrivals", flights[] }` | Click row → `get_aircraft_track` inline (using `first_seen_ts`) |
+
+A standalone `get_aircraft_state` result (no `flights` array) renders as a state card rather than a table.
+
+**Checked row UX** — after a row's detail data loads successfully, the row turns green and the toggle cell shows `✓`. The green state persists when the row is collapsed, giving the user a clear visual record of which flights have been checked.
+
 Key behaviours:
-- Receives flight data via `window.openai.toolOutput` and renders a flight table
-- Click-to-expand rows call `get_aircraft_state` in real time via `window.openai.callTool`
+- Receives data via `window.openai.toolOutput`; dispatches to the correct view mode via `render()`
+- `toggleRow(idx)` — branches on `viewMode` to call either `get_aircraft_state` or `get_aircraft_track`
+- `fetchLiveState()` — aircraft view footer button; calls `get_aircraft_state` for the whole aircraft
+- `renderDetail(idx, state)` — renders live state in an expanded departures row
+- `renderTrackDetail(idx, track)` — renders track summary in an expanded arrivals row
+- `renderStateCard(state)` — renders a standalone state card (no table)
 - Light/dark theming via CSS custom properties applied from `window.openai.theme`
 - Auto-height notification via `window.openai.notifyIntrinsicHeight`
 - Polling pattern to handle M365's delayed injection of `window.openai`
@@ -269,7 +337,21 @@ Key behaviours:
 
 ### `widget_test.html` — Local Test Harness
 
-A standalone HTML page that simulates M365/ChatGPT postMessage data delivery. Allows the widget to be tested entirely locally — no live server, no tunnel, no M365 account required. Includes mock flight data, a dark/light toggle, and an event log panel. Use this before every M365 deployment.
+A standalone HTML page that simulates M365/ChatGPT postMessage data delivery. Allows the widget to be tested entirely locally — no live server, no tunnel, no M365 account required. Includes mock data for all three view modes, a dark/light toggle, and an event log panel. Use this before every M365 deployment.
+
+**Three mock send buttons:**
+
+| Button | Colour | Simulates |
+|---|---|---|
+| Send Mock Flights | Blue | `get_flights_by_aircraft` — aircraft view, 3 rows, ICAO24 `3c675a` |
+| Send Mock Departures | Green | `get_airport_departures` — EGLL, 3 rows, includes `icao24` + `first_seen_ts` |
+| Send Mock Arrivals | Orange | `get_airport_arrivals` — KJFK, 3 rows, includes `icao24` + `first_seen_ts` |
+
+The harness intercepts all `callTool` requests and routes them to mock responses:
+- `get_aircraft_state` → returns mock position, altitude, speed, heading
+- `get_aircraft_track` → returns mock waypoints, start/end time, first/last position
+
+No live MCP server or internet connection required for local testing.
 
 ---
 
@@ -398,7 +480,7 @@ Before connecting to M365, verify the widget renders correctly:
 tests/widget_test.html
 ```
 
-Use **Send Mock Flights** to trigger a render and **Toggle Dark/Light** to verify theming. No server or tunnel required.
+Use **Send Mock Flights**, **Send Mock Departures**, or **Send Mock Arrivals** to test all three view modes. Click rows in departures/arrivals views to test the `callTool` flow. Use **Toggle Dark/Light** to verify theming. No server or tunnel required.
 
 > 💡 **Always test locally first.** Debugging inside the M365 iframe is considerably less pleasant than debugging in a browser with DevTools open.
 
@@ -414,9 +496,12 @@ Connect using **Streamable HTTP** transport to `https://flight-tracker-3000.inc1
 
 Verify the following before proceeding to M365:
 
-- [ ] `tools/list` returns both tools with `_meta: { ui: { resourceUri: "ui://widget/flights.html" } }`
+- [ ] `tools/list` returns all five tools, each with `_meta: { ui: { resourceUri: "ui://widget/flights.html" } }`
 - [ ] `resources/list` returns `ui://widget/flights.html` with MIME type `text/html;profile=mcp-app`
-- [ ] Calling `get_flights_by_aircraft` returns `structuredContent` with a `flights` array
+- [ ] `get_flights_by_aircraft` returns `structuredContent` with `icao24` and `flights[]`
+- [ ] `get_airport_departures` returns `structuredContent` with `type: "departures"` and `flights[]` including `first_seen_ts`
+- [ ] `get_airport_arrivals` returns `structuredContent` with `type: "arrivals"` and `flights[]` including `first_seen_ts`
+- [ ] `get_aircraft_track` returns `structuredContent` with `found`, `waypoints`, `first_position`, `last_position`
 
 > 📝 MCP Inspector v0.21.1 shows no entry in the "MCPApp" tab for Python servers — the Python SDK does not announce the `ext-apps` capability. This does **not** affect functionality in M365 or ChatGPT. A perfectly functional system appearing deficient in the inspector is, one notes, rather a civil service tradition.
 
@@ -427,8 +512,11 @@ Verify the following before proceeding to M365:
 The widget is served live from the MCP server — no re-provision is needed when it changes. Developers extending it should be familiar with:
 
 - `--color-*` CSS variables in `:root` (light) and `[data-theme="dark"]` (dark) for theming
-- `render(data)` — builds the flight table from `structuredContent`
-- `toggleRow(idx)` — expands a row and calls `get_aircraft_state` via `window.openai.callTool`
+- `render(data)` — dispatches to the correct view mode based on `structuredContent` shape
+- `toggleRow(idx)` — branches on `viewMode`: departures → `get_aircraft_state`, arrivals → `get_aircraft_track`
+- `fetchLiveState()` — aircraft view footer button, calls `get_aircraft_state` for the whole aircraft
+- `renderDetail` / `renderTrackDetail` / `renderStateCard` — view-specific rendering functions
+- `checkedRows` — tracks which rows have loaded data; drives the green row + ✓ checkmark UX
 - `tryRenderFromOpenAI()` + polling loop — handles M365's delayed `window.openai` injection
 
 #### Troubleshooting
@@ -506,7 +594,7 @@ async def get_flights_by_aircraft(...):
 
 `mcp-tools.json` is the **static snapshot of `tools/list`** M365 uses at deploy time. It is generated by ATK's "Fetch action from MCP" step. If `_meta` is added to the server after this file was generated, M365 will have no knowledge of the widget.
 
-Manually add `_meta` to each tool entry:
+Manually add `_meta` to **every** tool entry. All five tools share the same widget URI:
 
 ```json
 {
@@ -516,11 +604,35 @@ Manually add `_meta` to each tool entry:
       "description": "...",
       "inputSchema": { "..." },
       "title": "Get flights by aircraft",
-      "_meta": {
-        "ui": {
-          "resourceUri": "ui://widget/flights.html"
-        }
-      }
+      "_meta": { "ui": { "resourceUri": "ui://widget/flights.html" } }
+    },
+    {
+      "name": "get_aircraft_state",
+      "description": "...",
+      "inputSchema": { "..." },
+      "title": "Get aircraft state",
+      "_meta": { "ui": { "resourceUri": "ui://widget/flights.html" } }
+    },
+    {
+      "name": "get_airport_departures",
+      "description": "...",
+      "inputSchema": { "..." },
+      "title": "Get airport departures",
+      "_meta": { "ui": { "resourceUri": "ui://widget/flights.html" } }
+    },
+    {
+      "name": "get_airport_arrivals",
+      "description": "...",
+      "inputSchema": { "..." },
+      "title": "Get airport arrivals",
+      "_meta": { "ui": { "resourceUri": "ui://widget/flights.html" } }
+    },
+    {
+      "name": "get_aircraft_track",
+      "description": "...",
+      "inputSchema": { "..." },
+      "title": "Get aircraft track",
+      "_meta": { "ui": { "resourceUri": "ui://widget/flights.html" } }
     }
   ]
 }

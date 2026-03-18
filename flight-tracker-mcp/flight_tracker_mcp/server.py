@@ -1,5 +1,5 @@
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -196,6 +196,209 @@ async def get_aircraft_state(icao24: str) -> types.CallToolResult:
     )
 
 
+# ── Tool: get_airport_departures ───────────────────────────────────────────────
+
+@mcp.tool(
+    description=(
+        "Retrieve flights departing from an airport within a date range. "
+        "airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). "
+        "Date range must not exceed 1 day. "
+        "Only flights from the previous day or earlier are available."
+    ),
+    meta={"ui": {"resourceUri": WIDGET_URI}},
+)
+async def get_airport_departures(
+    airport: str,
+    begin_date: str,
+    end_date: str,
+) -> types.CallToolResult:
+    """
+    Args:
+        airport:    ICAO airport code, e.g. 'EGLL'
+        begin_date: Start date YYYY-MM-DD, e.g. '2024-01-15'
+        end_date:   End date YYYY-MM-DD (same as begin_date for a single day)
+    """
+    begin = int(datetime.fromisoformat(begin_date).replace(tzinfo=timezone.utc).timestamp())
+    end = int(datetime.fromisoformat(end_date + "T23:59:59").replace(tzinfo=timezone.utc).timestamp())
+
+    if end - begin > 24 * 3600:
+        raise ValueError("Date range cannot exceed 1 day for airport queries.")
+
+    token = await get_opensky_token()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://opensky-network.org/api/flights/departure",
+            params={"airport": airport.upper(), "begin": begin, "end": end},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 404:
+            flights_raw = []
+        else:
+            resp.raise_for_status()
+            flights_raw = resp.json()
+
+    flights = [
+        {
+            "icao24":        f.get("icao24"),
+            "callsign":      (f.get("callsign") or "").strip() or None,
+            "from":          f.get("estDepartureAirport"),
+            "to":            f.get("estArrivalAirport"),
+            "departed":      format_unix(f["firstSeen"]),
+            "arrived":       format_unix(f["lastSeen"]),
+            "first_seen_ts": f["firstSeen"],
+        }
+        for f in flights_raw
+    ]
+
+    structured_content = {
+        "type":          "departures",
+        "airport":       airport.upper(),
+        "total_flights": len(flights),
+        "flights":       flights,
+    }
+
+    summary = (
+        f"No departures found from {airport.upper()} between {begin_date} and {end_date}."
+        if not flights
+        else f"Found {len(flights)} departure(s) from {airport.upper()}. See the widget for details."
+    )
+
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=summary)],
+        structuredContent=structured_content,
+    )
+
+
+# ── Tool: get_airport_arrivals ─────────────────────────────────────────────────
+
+@mcp.tool(
+    description=(
+        "Retrieve flights arriving at an airport within a date range. "
+        "airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). "
+        "Date range must not exceed 1 day. "
+        "Only flights from the previous day or earlier are available."
+    ),
+    meta={"ui": {"resourceUri": WIDGET_URI}},
+)
+async def get_airport_arrivals(
+    airport: str,
+    begin_date: str,
+    end_date: str,
+) -> types.CallToolResult:
+    """
+    Args:
+        airport:    ICAO airport code, e.g. 'EGLL'
+        begin_date: Start date YYYY-MM-DD, e.g. '2024-01-15'
+        end_date:   End date YYYY-MM-DD (same as begin_date for a single day)
+    """
+    begin = int(datetime.fromisoformat(begin_date).replace(tzinfo=timezone.utc).timestamp())
+    end = int(datetime.fromisoformat(end_date + "T23:59:59").replace(tzinfo=timezone.utc).timestamp())
+
+    if end - begin > 24 * 3600:
+        raise ValueError("Date range cannot exceed 1 day for airport queries.")
+
+    token = await get_opensky_token()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://opensky-network.org/api/flights/arrival",
+            params={"airport": airport.upper(), "begin": begin, "end": end},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 404:
+            flights_raw = []
+        else:
+            resp.raise_for_status()
+            flights_raw = resp.json()
+
+    flights = [
+        {
+            "icao24":        f.get("icao24"),
+            "callsign":      (f.get("callsign") or "").strip() or None,
+            "from":          f.get("estDepartureAirport"),
+            "to":            f.get("estArrivalAirport"),
+            "departed":      format_unix(f["firstSeen"]),
+            "arrived":       format_unix(f["lastSeen"]),
+            "first_seen_ts": f["firstSeen"],
+        }
+        for f in flights_raw
+    ]
+
+    structured_content = {
+        "type":          "arrivals",
+        "airport":       airport.upper(),
+        "total_flights": len(flights),
+        "flights":       flights,
+    }
+
+    summary = (
+        f"No arrivals found at {airport.upper()} between {begin_date} and {end_date}."
+        if not flights
+        else f"Found {len(flights)} arrival(s) at {airport.upper()}. See the widget for details."
+    )
+
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=summary)],
+        structuredContent=structured_content,
+    )
+
+
+# ── Tool: get_aircraft_track ───────────────────────────────────────────────────
+
+@mcp.tool(
+    description=(
+        "Get the flight track (waypoints) for an aircraft. "
+        "icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). "
+        "time is a Unix timestamp within the flight's time window to retrieve a specific "
+        "historical track; pass 0 to retrieve the most recent track. "
+        "Use the first_seen_ts from a departure or arrival result to get the track for that flight."
+    ),
+)
+async def get_aircraft_track(icao24: str, time: int = 0) -> types.CallToolResult:
+    """
+    Args:
+        icao24: Aircraft transponder address, e.g. '3c675a'
+        time:   Unix timestamp within the flight window, or 0 for most recent track
+    """
+    token = await get_opensky_token()
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            "https://opensky-network.org/api/tracks/all",
+            params={"icao24": icao24, "time": time},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if resp.status_code == 404:
+            structured: dict = {"icao24": icao24, "found": False}
+            summary = f"No track found for {icao24}."
+        else:
+            resp.raise_for_status()
+            data = resp.json()
+            path = data.get("path") or []
+            first = path[0]  if path else None
+            last  = path[-1] if path else None
+            structured = {
+                "icao24":          icao24,
+                "found":           True,
+                "callsign":        (data.get("callsign") or "").strip() or None,
+                "start_time":      format_unix(data["startTime"]) if data.get("startTime") else None,
+                "end_time":        format_unix(data["endTime"])   if data.get("endTime")   else None,
+                "waypoints":       len(path),
+                "first_position":  {"lat": first[1], "lon": first[2]} if first else None,
+                "last_position":   {"lat": last[1],  "lon": last[2]}  if last  else None,
+            }
+            summary = (
+                f"Track for {icao24} ({structured['callsign'] or 'unknown callsign'}): "
+                f"{len(path)} waypoints from {structured['start_time']} to {structured['end_time']}."
+            )
+
+    return types.CallToolResult(
+        content=[types.TextContent(type="text", text=summary)],
+        structuredContent=structured,
+    )
+
+
 # ── Prompts ────────────────────────────────────────────────────────────────────
 
 @mcp.prompt()
@@ -230,9 +433,9 @@ def analyse_aircraft(icao24: str) -> list[PromptMessage]:
     Args:
         icao24: Aircraft transponder address, e.g. '3c675a'
     """
-    today      = datetime.now(tz=timezone.utc).date()
-    two_days_ago = today.replace(day=today.day - 2)
-    yesterday    = today.replace(day=today.day - 1)
+    today        = datetime.now(tz=timezone.utc).date()
+    two_days_ago = today - timedelta(days=2)
+    yesterday    = today - timedelta(days=1)
 
     return [
         PromptMessage(
@@ -291,6 +494,56 @@ def flight_briefing(icao24: str, date: str) -> list[PromptMessage]:
                 ),
             ),
         ),
+    ]
+
+
+@mcp.prompt()
+def lookup_departures(airport: str, date: str) -> list[PromptMessage]:
+    """
+    Look up all departures from an airport on a specific date.
+    Args:
+        airport: ICAO airport code, e.g. 'EGLL'
+        date:    Date in YYYY-MM-DD format, e.g. '2024-01-15'
+    """
+    return [
+        PromptMessage(
+            role="user",
+            content=TextContent(
+                type="text",
+                text=(
+                    f"Show me all departures from airport {airport.upper()} on {date}. "
+                    f"Call get_airport_departures with airport='{airport.upper()}', "
+                    f"begin_date='{date}', end_date='{date}'. "
+                    f"Present the results clearly. For any flight of interest, offer to show "
+                    f"its live state by calling get_aircraft_state with the flight's icao24."
+                ),
+            ),
+        )
+    ]
+
+
+@mcp.prompt()
+def lookup_arrivals(airport: str, date: str) -> list[PromptMessage]:
+    """
+    Look up all arrivals at an airport on a specific date.
+    Args:
+        airport: ICAO airport code, e.g. 'EGLL'
+        date:    Date in YYYY-MM-DD format, e.g. '2024-01-15'
+    """
+    return [
+        PromptMessage(
+            role="user",
+            content=TextContent(
+                type="text",
+                text=(
+                    f"Show me all arrivals at airport {airport.upper()} on {date}. "
+                    f"Call get_airport_arrivals with airport='{airport.upper()}', "
+                    f"begin_date='{date}', end_date='{date}'. "
+                    f"Present the results clearly. For any flight of interest, offer to show "
+                    f"its track by calling get_aircraft_track with the flight's icao24 and first_seen_ts as time."
+                ),
+            ),
+        )
     ]
 
 

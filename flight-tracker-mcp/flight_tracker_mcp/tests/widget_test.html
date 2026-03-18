@@ -5,16 +5,22 @@
 <title>Widget UX Test</title>
 <style>
   body    { font-family: system-ui, sans-serif; background: #f0f0f0; padding: 24px; }
-  h2      { margin-bottom: 16px; }
-  .controls { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-  button  { padding: 8px 16px; border: none; border-radius: 6px; background: #0066cc; color: white; cursor: pointer; font-size: 13px; }
+  h2      { margin-bottom: 8px; }
+  .section-label { font-size: 11px; font-weight: 600; text-transform: uppercase; color: #888; margin: 12px 0 6px; letter-spacing: 0.5px; }
+  .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+  button  { padding: 8px 14px; border: none; border-radius: 6px; background: #0066cc; color: white; cursor: pointer; font-size: 13px; }
   button:hover { background: #0052a3; }
-  button.dark  { background: #333; }
-  button.dark:hover { background: #111; }
-  button.secondary { background: #888; }
-  .hint   { font-size: 12px; color: #666; margin-bottom: 16px; }
-  .log    { font-size: 11px; color: #555; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-top: 12px; max-height: 120px; overflow-y: auto; font-family: monospace; }
-  .frame-wrapper { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; max-width: 820px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+  button.green  { background: #1a7f4b; }
+  button.green:hover  { background: #145f38; }
+  button.orange { background: #c25a00; }
+  button.orange:hover { background: #a04800; }
+  button.dark   { background: #333; }
+  button.dark:hover   { background: #111; }
+  button.secondary    { background: #888; }
+  button.secondary:hover { background: #666; }
+  .hint   { font-size: 12px; color: #666; margin: 4px 0 16px; }
+  .log    { font-size: 11px; color: #555; background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: 8px; margin-top: 12px; max-height: 140px; overflow-y: auto; font-family: monospace; }
+  .frame-wrapper { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; max-width: 860px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
   iframe  { width: 100%; border: none; min-height: 60px; display: block; }
 </style>
 </head>
@@ -22,13 +28,31 @@
 
 <h2>Flight Tracker — Widget UX Test</h2>
 
+<div class="section-label">Aircraft Flights — get_flights_by_aircraft</div>
 <div class="controls">
   <button onclick="sendFlights()">Send Mock Flights (3 rows)</button>
   <button class="secondary" onclick="sendEmpty()">Send Empty Result</button>
+</div>
+<p class="hint">Rows are not expandable. Click "Check Live State →" in the footer to fetch aircraft state inline.</p>
+
+<div class="section-label">Airport Departures — get_airport_departures</div>
+<div class="controls">
+  <button class="green" onclick="sendDepartures()">Send Mock Departures (3 rows)</button>
+</div>
+<p class="hint">Click a row to fetch live state (get_aircraft_state) for that aircraft.</p>
+
+<div class="section-label">Airport Arrivals — get_airport_arrivals</div>
+<div class="controls">
+  <button class="orange" onclick="sendArrivals()">Send Mock Arrivals (3 rows)</button>
+</div>
+<p class="hint">Click a row to fetch the flight track (get_aircraft_track) for that flight.</p>
+
+<div class="section-label">Theme</div>
+<div class="controls">
   <button class="dark" onclick="toggleTheme()">Toggle Dark / Light</button>
 </div>
-<p class="hint">Click any flight row in the widget to trigger live state fetch (mocked below).</p>
 
+<br/>
 <div class="frame-wrapper">
   <iframe id="widget" src="../web/widget.html"></iframe>
 </div>
@@ -38,6 +62,7 @@
 <script>
   var isDark = false;
 
+  // ── Mock: Aircraft flights (get_flights_by_aircraft) ───────────────────────
   var MOCK_FLIGHTS = {
     icao24: "3c675a",
     total_flights: 3,
@@ -50,7 +75,31 @@
 
   var MOCK_EMPTY = { icao24: "3c675a", total_flights: 0, flights: [] };
 
-  // Mock state returned when widget calls get_aircraft_state
+  // ── Mock: Airport departures (get_airport_departures) ──────────────────────
+  var MOCK_DEPARTURES = {
+    type: "departures",
+    airport: "EGLL",
+    total_flights: 3,
+    flights: [
+      { icao24: "3c675a", callsign: "DLH08H",  from: "EGLL", to: "EDDF", departed: "2024-01-15 07:15 UTC", arrived: "2024-01-15 09:30 UTC", first_seen_ts: 1705302900 },
+      { icao24: "4ca7a3", callsign: "EIN345",  from: "EGLL", to: "EIDW", departed: "2024-01-15 08:00 UTC", arrived: "2024-01-15 09:10 UTC", first_seen_ts: 1705305600 },
+      { icao24: "400f2a", callsign: null,       from: "EGLL", to: "LEMD", departed: "2024-01-15 09:45 UTC", arrived: "2024-01-15 13:20 UTC", first_seen_ts: 1705311900 }
+    ]
+  };
+
+  // ── Mock: Airport arrivals (get_airport_arrivals) ──────────────────────────
+  var MOCK_ARRIVALS = {
+    type: "arrivals",
+    airport: "KJFK",
+    total_flights: 3,
+    flights: [
+      { icao24: "a4f3c1", callsign: "BAW001",  from: "EGLL", to: "KJFK", departed: "2024-01-15 09:00 UTC", arrived: "2024-01-15 12:15 UTC", first_seen_ts: 1705312800 },
+      { icao24: "a1b2c3", callsign: "AAL100",  from: "EHAM", to: "KJFK", departed: "2024-01-15 10:30 UTC", arrived: "2024-01-15 14:00 UTC", first_seen_ts: 1705318200 },
+      { icao24: "a9d4e5", callsign: "UAL88",   from: "EDDF", to: "KJFK", departed: "2024-01-15 11:00 UTC", arrived: "2024-01-15 15:45 UTC", first_seen_ts: 1705320000 }
+    ]
+  };
+
+  // ── Mock: get_aircraft_state response ─────────────────────────────────────
   var MOCK_STATE = {
     icao24:          "3c675a",
     found:           true,
@@ -68,6 +117,19 @@
     last_contact:    "2024-01-15 06:35 UTC"
   };
 
+  // ── Mock: get_aircraft_track response ─────────────────────────────────────
+  var MOCK_TRACK = {
+    icao24:         "a4f3c1",
+    found:          true,
+    callsign:       "BAW001",
+    start_time:     "2024-01-15 09:00 UTC",
+    end_time:       "2024-01-15 12:15 UTC",
+    waypoints:      312,
+    first_position: { lat: 51.4775, lon: -0.4614 },
+    last_position:  { lat: 40.6413, lon: -73.7781 }
+  };
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
   function post(data) {
     document.getElementById('widget').contentWindow.postMessage(data, '*');
   }
@@ -78,15 +140,10 @@
     el.scrollTop = el.scrollHeight;
   }
 
-  function sendFlights() {
-    post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_FLIGHTS } });
-    log('→ Sent mock flights data');
-  }
-
-  function sendEmpty() {
-    post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_EMPTY } });
-    log('→ Sent empty result');
-  }
+  function sendFlights()    { post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_FLIGHTS    } }); log('→ Sent mock aircraft flights (3c675a)'); }
+  function sendEmpty()      { post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_EMPTY      } }); log('→ Sent empty aircraft result'); }
+  function sendDepartures() { post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_DEPARTURES } }); log('→ Sent mock departures (EGLL)'); }
+  function sendArrivals()   { post({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { structuredContent: MOCK_ARRIVALS   } }); log('→ Sent mock arrivals (KJFK)'); }
 
   function toggleTheme() {
     isDark = !isDark;
@@ -96,18 +153,29 @@
     log('→ Theme: ' + (isDark ? 'dark' : 'light'));
   }
 
-  // Handle messages FROM the widget
+  // ── Handle messages FROM the widget ───────────────────────────────────────
   window.addEventListener('message', function(e) {
     var msg = e.data;
     if (!msg) return;
 
     // callTool request from widget
     if (msg.jsonrpc === '2.0' && msg.method === 'ui/callTool') {
-      log('← callTool: ' + msg.params.name + '(' + JSON.stringify(msg.params.args) + ')');
-      // Simulate network delay
+      var tool = msg.params.name;
+      log('← callTool: ' + tool + '(' + JSON.stringify(msg.params.args) + ')');
+
       setTimeout(function() {
-        post({ jsonrpc: '2.0', id: msg.id, result: MOCK_STATE });
-        log('→ Returned mock state for ' + msg.params.args.icao24);
+        var result;
+        if (tool === 'get_aircraft_state') {
+          result = Object.assign({}, MOCK_STATE, { icao24: msg.params.args.icao24 });
+          log('→ Returned mock state for ' + msg.params.args.icao24);
+        } else if (tool === 'get_aircraft_track') {
+          result = Object.assign({}, MOCK_TRACK, { icao24: msg.params.args.icao24 });
+          log('→ Returned mock track for ' + msg.params.args.icao24);
+        } else {
+          result = { found: false };
+          log('→ Unknown tool: ' + tool);
+        }
+        post({ jsonrpc: '2.0', id: msg.id, result: result });
       }, 600);
       return;
     }

@@ -7,12 +7,24 @@
     "namespace": "flighttracker",
     "functions": [
         {
-            "name": "get_flights_by_aircraft",
-            "description": "Retrieve flight history for an aircraft by its ICAO 24-bit transponder address. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Date range must not exceed 2 days. Only flights from the previous day or earlier are available."
-        },
-        {
             "name": "get_aircraft_state",
             "description": "Get the last known live state of an aircraft: position, altitude, speed, heading. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Returns current live data — not historical position at time of a past flight."
+        },
+        {
+            "name": "get_aircraft_track",
+            "description": "Get the flight track (waypoints) for an aircraft. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). time is a Unix timestamp within the flight's time window to retrieve a specific historical track; pass 0 to retrieve the most recent track. Use the first_seen_ts from a departure or arrival result to get the track for that flight."
+        },
+        {
+            "name": "get_airport_arrivals",
+            "description": "Retrieve flights arriving at an airport within a date range. airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). Date range must not exceed 1 day. Only flights from the previous day or earlier are available."
+        },
+        {
+            "name": "get_airport_departures",
+            "description": "Retrieve flights departing from an airport within a date range. airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). Date range must not exceed 1 day. Only flights from the previous day or earlier are available."
+        },
+        {
+            "name": "get_flights_by_aircraft",
+            "description": "Retrieve flight history for an aircraft by its ICAO 24-bit transponder address. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Date range must not exceed 2 days. Only flights from the previous day or earlier are available."
         }
     ],
     "runtimes": [
@@ -26,6 +38,9 @@
             },
             "run_for_functions": [
                 "get_aircraft_state",
+                "get_aircraft_track",
+                "get_airport_arrivals",
+                "get_airport_departures",
                 "get_flights_by_aircraft"
             ],
             "auth": {
