@@ -24,7 +24,7 @@
 
 ## Contents
 
-- [App Functionality](#app-functionality)
+- [✈️ Flight Tracker](#️-flight-tracker)
 - [What Are MCP Apps?](#what-are-mcp-apps)
 - [Project Structure](#project-structure)
 - [Key Scripts](#key-scripts)
@@ -37,89 +37,56 @@
 
 ---
 
-## App Functionality
+## ✈️ Flight Tracker
 
-A **Flight Tracker MCP server** that connects to Microsoft 365 Copilot (and ChatGPT) as a Declarative Agent. The agent supports three distinct workflows:
+The **Flight Tracker** is an MCP server that connects to M365 Copilot as a Declarative Agent. Give it any aircraft's ICAO24 transponder code and it:
 
-1. **Aircraft history** — given an ICAO24 transponder code, fetches flight history and renders a flight table; a footer button calls back to retrieve the aircraft's current live state
-2. **Airport departures** — given an airport code and date, lists departing flights; clicking any row fetches the aircraft's live position inline
-3. **Airport arrivals** — given an airport code and date, lists arriving flights; clicking any row fetches the historical flight track inline
+| Step | What happens |
+|---|---|
+| 1️⃣ | Fetches flight history from OpenSky Network (dates, routes, callsigns) |
+| 2️⃣ | Renders a **live interactive table** directly inside the Copilot chat |
+| 3️⃣ | On clicking any row, **calls back to the MCP server in real time** for live aircraft state |
+| 4️⃣ | Shows altitude, speed, heading, on-ground status — inline, no second prompt |
+| 5️⃣ | Applies light/dark theming automatically from the M365 host |
 
-All three workflows:
-- Render a **live interactive widget** directly inside the Copilot chat
-- Apply light/dark theming automatically from the host
-- Suppress model text — the widget is the response
-- Mark viewed rows with a green checkmark — visual confirmation of what has been checked
+The agent also supports **airport departure and arrival workflows** — click any flight row in an arrivals table to fetch the historical flight track, or in a departures table to fetch the aircraft's live state. Viewed rows are marked green with a ✓ checkmark.
 
-The agent exposes **five tools** and **five pre-built prompts**.
+**Five tools exposed:**
+- `get_flights_by_aircraft` — flight history by date range
+- `get_aircraft_state` — live position, altitude, speed, heading
+- `get_airport_departures` — departing flights from an airport for a date range
+- `get_airport_arrivals` — arriving flights at an airport for a date range
+- `get_aircraft_track` — historical flight track (waypoints, start/end position)
 
-The UX is rather efficient: no walls of text, no redundant summaries. The widget speaks for itself — which is, frankly, more than can be said for most enterprise software.
+**Five pre-built prompts:**
+- `lookup_flights` — flight history for a given date
+- `analyse_aircraft` — two-day pattern analysis
+- `flight_briefing` — full briefing combining history and live state
+- `lookup_departures` — departures from an airport on a given date
+- `lookup_arrivals` — arrivals at an airport on a given date
 
-### End-to-End Data Flows
-
-**Flow 1 — Aircraft flight history → live state**
+**How data flows end to end:**
 ```
-User: "Show flights for aircraft 3c675a"
+User types prompt
        │
-       ▼
-tools/call → get_flights_by_aircraft(icao24, begin_date, end_date)
-  → GET opensky-network.org/api/flights/aircraft
-  → structuredContent { icao24, total_flights, flights: [...] }
+[M365 Copilot LLM]  →  reads tools/list → sees _meta.ui.resourceUri
        │
-       ▼
-Widget renders flight table (aircraft view)
+tools/call  →  get_flights_by_aircraft(icao24, begin_date, end_date)
        │
-  [User clicks "Check Live State →" in footer]
+[server.py]  →  OpenSky OAuth2 token  →  GET /api/flights/aircraft
+               returns CallToolResult { content, structuredContent }
        │
-       ▼
-callTool("get_aircraft_state", { icao24 })
-  → GET opensky-network.org/api/states/all
-  → structuredContent { altitude, speed, heading, on_ground, ... }
+M365 fetches ui://widget/flights.html  →  renders in sandboxed iframe
+               injects window.openai.toolOutput = structuredContent
        │
-       ▼
-Live state card appears in widget footer
-```
-
-**Flow 2 — Airport departures → live aircraft state**
-```
-User: "Show departures from Heathrow yesterday"
+Widget renders flight table
        │
-       ▼
-tools/call → get_airport_departures(airport, begin_date, end_date)
-  → GET opensky-network.org/api/flights/departure
-  → structuredContent { type: "departures", airport, flights: [{ icao24, first_seen_ts, ... }] }
+  [User clicks a row]
        │
-       ▼
-Widget renders departures table
+window.openai.callTool("get_aircraft_state", { icao24 })
+               → GET /api/states/all
        │
-  [User clicks a flight row]
-       │
-       ▼
-callTool("get_aircraft_state", { icao24 })
-  → live state expands inline; row turns green with ✓
-```
-
-**Flow 3 — Airport arrivals → historical flight track**
-```
-User: "Show arrivals at JFK yesterday"
-       │
-       ▼
-tools/call → get_airport_arrivals(airport, begin_date, end_date)
-  → GET opensky-network.org/api/flights/arrival
-  → structuredContent { type: "arrivals", airport, flights: [{ icao24, first_seen_ts, ... }] }
-       │
-       ▼
-Widget renders arrivals table
-       │
-  [User clicks a flight row]
-       │
-       ▼
-callTool("get_aircraft_track", { icao24, time: first_seen_ts })
-  → GET opensky-network.org/api/tracks/all
-  → structuredContent { waypoints, start_time, end_time, first_position, last_position }
-       │
-       ▼
-Track detail expands inline; row turns green with ✓
+Live state appears inline in the expanded row
 ```
 
 ---
