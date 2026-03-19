@@ -209,7 +209,7 @@ flight-tracker-mcp/
 │   │   └── widget_test.html   # Local test harness — no M365 needed
 │   └── web/
 │       └── widget.html    # Self-contained HTML widget (no build step)
-├── .env                   # OPENSKY_CLIENT_ID, OPENSKY_CLIENT_SECRET
+├── .env.example           # Template — copy to .env and fill in credentials
 └── pyproject.toml
 ```
 
@@ -382,7 +382,12 @@ tests/widget_test.html
 pyproject.toml
 ```
 
-Copy `.env.example` to `.env` and populate the OpenSky credentials (see Step 4).
+Copy `.env.example` to `.env` and populate your OpenSky credentials (obtained in Step 4):
+
+```bash
+cp .env.example .env
+# then edit .env with your OPENSKY_CLIENT_ID and OPENSKY_CLIENT_SECRET
+```
 
 Start the server:
 
@@ -430,10 +435,11 @@ Expected: JSON response.
 
 ### Step 4 — OpenSky Network API
 
-Register at [opensky-network.org](https://opensky-network.org) → create an OAuth2 client application → obtain `client_id` and `client_secret`.
+Register at [opensky-network.org](https://opensky-network.org) → **My OpenSky** → create an OAuth2 client application → note the `client_id` and `client_secret`.
+
+Add them to your `.env` file (created in Step 2):
 
 ```ini
-# .env
 OPENSKY_CLIENT_ID=your-client-id
 OPENSKY_CLIENT_SECRET=your-client-secret
 ```
@@ -724,7 +730,7 @@ The MCP Apps ecosystem is active and maturing rapidly. The following challenges 
 | `flight_tracker_mcp/server.py` | FastMCP server — tools, resource, prompts |
 | `flight_tracker_mcp/web/widget.html` | UI widget — served as MCP resource |
 | `tests/widget_test.html` | Local test harness |
-| `.env` | OpenSky credentials |
+| `.env.example` | Credential template — copy to `.env` and fill in values (`.env` is gitignored) |
 | `appPackage/ai-plugin.json` | M365 plugin manifest — runtime URL |
 | `appPackage/mcp-tools.json` | Static `tools/list` snapshot — must include `_meta` |
 | `appPackage/instruction.txt` | Agent system prompt |
