@@ -31,7 +31,7 @@
 - [Prerequisites](#prerequisites)
 - [Set-up](#set-up)
 - [Critical Troubleshooting](#critical-troubleshooting)
-- [Developer Community Challenges](#developer-community-challenges)
+- [Platform Constraints and Gaps](#platform-constraints-and-gaps)
 - [Quick Reference](#quick-reference)
 - [References](#references)
 
@@ -676,25 +676,44 @@ Real-world friction points encountered during development. None are covered in t
 | **OpenSky 401 Unauthorised** | Tried HTTP Basic Auth | Use OAuth2 `grant_type=client_credentials` + Bearer token |
 | **`outputTemplate: ""` kills the widget** | Added to suppress model text; M365 abandons widget rendering entirely | Remove it; use `instruction.txt` instead |
 | **No console in M365 iframe** | Can't open DevTools inside the hosted widget | Test fully with `widget_test.html` locally before deploying to M365 |
-| **Widget state lost on chat re-open** | `ontoolresult` doesn't re-fire for historical messages | No clean solution yet — open issue in the ecosystem |
-| **Python/Node.js parity gap** | `@modelcontextprotocol/ext-apps` is TypeScript-only | Python uses FastMCP `meta=` parameter + `window.openai.*` bridge manually |
 
 ---
 
-## Developer Community Challenges
+## Platform Constraints and Gaps
 
-The MCP Apps ecosystem is active and maturing rapidly. The following challenges are commonly encountered:
+Understanding what is **by design** versus what is a **genuine platform gap** saves significant debugging time.
 
-| Challenge | Summary |
+### By Design — Sandbox Architecture
+
+These are intentional security constraints of the MCP Apps model, not bugs or missing features. Do not attempt to work around them — the correct pattern is to route all external calls through the MCP server.
+
+| Constraint | Why by design |
 |---|---|
-| **UI state on re-open** | When users return to a chat, `ontoolresult` does not re-fire for historical messages. Widget loads in empty state. No clean solution yet. ([GitHub #195](https://github.com/openai/openai-apps-sdk-examples/issues/195)) |
-| **Python/Node.js parity gap** | `@modelcontextprotocol/ext-apps` is TypeScript-only. Python servers must use FastMCP's `meta=` parameter and handle the `window.openai.*` bridge manually — no `useApp()` hook equivalent. |
-| **`mcp-tools.json` is a manual step** | ATK requires a static snapshot of `tools/list`. Any change to tool metadata requires re-fetching, editing, and re-provisioning. Acknowledged as temporary in the official docs. |
-| **Debugging inside the iframe** | No accessible browser console in M365. Diagnosis requires cross-referencing server logs, MCP Inspector, and considerable patience. |
-| **Dev tunnel lifecycle** | Ephemeral tunnels break manifests on restart. Named tunnels resolve this. `--allow-anonymous` is required or M365 is redirected to a login page mid-session. |
-| **`ext-apps` capability not announced by Python SDK** | MCP Inspector shows no MCP Apps capability for Python servers. Currently harmless, but may matter as hosts begin gating features behind capability negotiation. |
-| **M365 preview limitations** | MCP Apps native support is "coming soon". Current support is OpenAI Apps SDK bridge only. Fullscreen-only `requestDisplayMode`; no modals; no file upload. |
-| **CSP and CORS for widget callbacks** | `callTool` requests originate from `{hashed-domain}.widget-renderer.usercontent.microsoft.com`. CORS must allow this. Use the [Widget Host URL Generator](https://aka.ms/mcpwidgeturlgenerator). |
+| **Widget cannot make direct authenticated API calls** | Widget iframe is credential-free by design — the MCP server is the trust boundary |
+| **Widget state is message-scoped** | Each tool result is an isolated, reproducible rendering — `setWidgetState` persists state within a single message's widget only |
+| **Widget state lost on conversation re-open** | `ontoolresult` does not re-fire for historical messages — by design, not a bug |
+| **No file upload/download from widget** | Widgets are data viewers — file handling belongs in the MCP server |
+| **No modal dialogs** | Host controls the UX chrome — widgets cannot break out of the iframe |
+| **No OAuth redirects in widget** | `redirect_domains` CSP unsupported — prevents credential exposure inside the sandboxed iframe |
+| **CSP/CORS origin for `callTool`** | Widget runs at `{hashed-domain}.widget-renderer.usercontent.microsoft.com` — CORS must allow this origin. Use the [Widget Host URL Generator](https://aka.ms/mcpwidgeturlgenerator) |
+
+**Correct pattern for all external calls:**
+```
+Widget → callTool → MCP Server (authenticated) → External API
+```
+
+### Genuine Platform Gaps
+
+These are real limitations where M365 falls short of the spec, of ChatGPT's implementation, or of other M365 extensibility technologies.
+
+| Gap | Impact |
+|---|---|
+| **M365 uses OpenAI Apps SDK, not MCP Apps open spec** | Microsoft Learn states *"Support for MCP Apps is coming soon"* — current support is the OpenAI Apps SDK bridge (`window.openai.*`). Enterprises building now depend on an informal bridge, not the open standard. |
+| **`widgetSessionId` unsupported in M365** | Supported in ChatGPT, missing in M365. Without it, widget state resets on every tool call — even within the same conversation. Multi-step workflows require a backend to persist state between tool calls. |
+| **`mcp-tools.json` is a manual step** | ATK snapshots `tools/list` into a static file at provision time, stripping `_meta`. Every tool change requires manual file edit + re-provision. All other M365 extensibility technologies (API plugins, Graph connectors) fetch definitions live. Acknowledged as temporary by Microsoft. |
+| **No iframe debug tooling** | Developer Mode shows orchestrator layer only — no widget-level console, no JS errors, no rendering visibility. Requires a local test harness for all widget debugging. |
+| **Python/Node.js parity gap** | `@modelcontextprotocol/ext-apps` is TypeScript-only. Python developers must hand-roll the `window.openai.*` bridge — no `useApp()` hook equivalent. |
+| **`ext-apps` capability not announced by Python SDK** | MCP Inspector shows no MCP Apps capability for Python servers — currently harmless but may matter as hosts gate features behind capability negotiation. |
 
 ---
 
