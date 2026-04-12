@@ -8,23 +8,23 @@
     "functions": [
         {
             "name": "get_aircraft_state",
-            "description": "Get the last known live state of an aircraft: position, altitude, speed, heading. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Returns current live data — not historical position at time of a past flight."
+            "description": "Get live position, altitude, speed and heading for an aircraft by ICAO24 code."
         },
         {
             "name": "get_aircraft_track",
-            "description": "Get the flight track (waypoints) for an aircraft. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). time is a Unix timestamp within the flight's time window to retrieve a specific historical track; pass 0 to retrieve the most recent track. Use the first_seen_ts from a departure or arrival result to get the track for that flight."
+            "description": "Get the historical flight track (waypoints) for an aircraft by ICAO24 code and time window."
         },
         {
             "name": "get_airport_arrivals",
-            "description": "Retrieve flights arriving at an airport within a date range. airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). Date range must not exceed 1 day. Only flights from the previous day or earlier are available."
+            "description": "Get flights that arrived at an airport on a given date (ICAO airport code, max 1 day, use yesterday's date)."
         },
         {
             "name": "get_airport_departures",
-            "description": "Retrieve flights departing from an airport within a date range. airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). Date range must not exceed 1 day. Only flights from the previous day or earlier are available."
+            "description": "Get flights that departed from an airport on a given date (ICAO airport code, max 1 day, today or earlier)."
         },
         {
             "name": "get_flights_by_aircraft",
-            "description": "Retrieve flight history for an aircraft by its ICAO 24-bit transponder address. icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). Date range must not exceed 2 days. Only flights from the previous day or earlier are available."
+            "description": "Get flight history for an aircraft by ICAO24 code and date range (max 2 days)."
         }
     ],
     "runtimes": [

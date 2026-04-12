@@ -56,7 +56,7 @@ def format_unix(ts: int) -> str:
         "Retrieve flight history for an aircraft by its ICAO 24-bit transponder address. "
         "icao24 must be a 6-character lowercase hex string (e.g. '3c675a'). "
         "Date range must not exceed 2 days. "
-        "Only flights from the previous day or earlier are available."
+        "Current-day and recent historical flights are available; use today's date for the latest departures."
     ),
     meta={"ui": {"resourceUri": WIDGET_URI}},
 )
@@ -209,7 +209,7 @@ async def get_aircraft_state(icao24: str) -> types.CallToolResult:
         "Retrieve flights departing from an airport within a date range. "
         "airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). "
         "Date range must not exceed 1 day. "
-        "Only flights from the previous day or earlier are available."
+        "Current-day and recent historical flights are available; use today's date for the latest departures."
     ),
     meta={"ui": {"resourceUri": WIDGET_URI}},
 )
@@ -289,7 +289,7 @@ async def get_airport_departures(
         "Retrieve flights arriving at an airport within a date range. "
         "airport must be an ICAO airport code (e.g. 'EGLL' for Heathrow, 'KJFK' for JFK). "
         "Date range must not exceed 1 day. "
-        "Only flights from the previous day or earlier are available."
+        "Use yesterday's date — same-day arrival data is not yet available as OpenSky processes arrivals after flights complete."
     ),
     meta={"ui": {"resourceUri": WIDGET_URI}},
 )
@@ -350,11 +350,19 @@ async def get_airport_arrivals(
         "flights":       flights,
     }
 
-    summary = (
-        f"No arrivals found at {airport.upper()} between {begin_date} and {end_date}."
-        if not flights
-        else f"Found {len(flights)} arrival(s) at {airport.upper()}. See the widget for details."
-    )
+    from datetime import date
+    today = date.today().isoformat()
+    if not flights:
+        if begin_date >= today:
+            summary = (
+                f"No arrivals found at {airport.upper()} for {begin_date}. "
+                f"Same-day arrival data is not yet available — OpenSky processes arrivals after flights complete. "
+                f"Try yesterday's date instead."
+            )
+        else:
+            summary = f"No arrivals found at {airport.upper()} between {begin_date} and {end_date}."
+    else:
+        summary = f"Found {len(flights)} arrival(s) at {airport.upper()}. See the widget for details."
 
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=summary)],

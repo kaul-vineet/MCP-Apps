@@ -7,10 +7,10 @@
 | **Subtitle** | A developer's field notes — victories, measured progress, and occasional bafflement |
 | **Author** | Vineet Kaul, PM Architect – Agentic AI, Microsoft |
 | **Date** | March 2026 |
-| **Stack** | Python · FastMCP 1.26 · OpenSky Network API · Microsoft Dev Tunnels · M365 Agents Toolkit |
+| **Stack** | Python · FastMCP [1.26] · OpenSky Network API · Microsoft Dev Tunnels · M365 Agents Toolkit |
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue)
-![MCP SDK](https://img.shields.io/badge/FastMCP-1.26-green)
+![Python](https://img.shields.io/badge/Python-%5B3.11%2B%5D-blue)
+![MCP SDK](https://img.shields.io/badge/FastMCP-%5B1.26%5D-green)
 ![M365](https://img.shields.io/badge/M365_Copilot-Public_Preview-orange)
 ![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
@@ -166,7 +166,7 @@ flight-tracker-agent/
 
 ### `server.py` — The MCP Server
 
-Built with [FastMCP](https://github.com/modelcontextprotocol/python-sdk) (Python MCP SDK 1.26). This is the core of the application.
+Built with [FastMCP](https://github.com/modelcontextprotocol/python-sdk) (Python MCP SDK [1.26]). This is the core of the application.
 
 **Resource registration** — the widget HTML is registered as an MCP resource with the `text/html;profile=mcp-app` MIME type, identifying it to any compliant host as a UI widget:
 
@@ -269,11 +269,11 @@ The harness intercepts all `callTool` requests: `get_aircraft_state` → mock st
 
 Before beginning, confirm all of the following are in place:
 
-- [ ] Python 3.11+
+- [ ] Python [3.11+]
 - [ ] Microsoft 365 tenant with Copilot licence
 - [ ] Custom App Upload enabled on the tenant
 - [ ] Copilot Access enabled on the tenant
-- [ ] VS Code + [M365 Agents Toolkit](https://marketplace.visualstudio.com/items?itemName=TeamsDevApp.ms-teams-vscode-extension) v6.5.2x prerelease or later
+- [ ] VS Code + [M365 Agents Toolkit](https://marketplace.visualstudio.com/items?itemName=TeamsDevApp.ms-teams-vscode-extension) [v6.5.2x] prerelease or later
 - [ ] [Microsoft Dev Tunnels CLI](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started) installed
 - [ ] [OpenSky Network account](https://opensky-network.org) (free) with an OAuth2 client application created
 - [ ] [MCP Inspector](https://www.npmjs.com/package/@modelcontextprotocol/inspector) available (`npx @modelcontextprotocol/inspector`)
@@ -419,7 +419,7 @@ Verify the following before proceeding to M365:
 - [ ] `get_airport_arrivals` returns `structuredContent` with `type: "arrivals"` and `flights[]` including `first_seen_ts`
 - [ ] `get_aircraft_track` returns `structuredContent` with `found`, `waypoints`, `first_position`, `last_position`
 
-> 📝 MCP Inspector v0.21.1 shows no entry in the "MCPApp" tab for Python servers — the Python SDK does not announce the `ext-apps` capability. This does **not** affect functionality in M365 or ChatGPT. A perfectly functional system appearing deficient in the inspector is, one notes, rather a civil service tradition.
+> 📝 MCP Inspector [v0.21.1] shows no entry in the "MCPApp" tab for Python servers — the Python SDK does not announce the `ext-apps` capability. This does **not** affect functionality in M365 or ChatGPT. A perfectly functional system appearing deficient in the inspector is, one notes, rather a civil service tradition.
 
 ---
 
@@ -518,7 +518,7 @@ async def get_flights_by_aircraft(...):
     )
 ```
 
-> 📝 FastMCP 1.26+ supports `meta=` on `@mcp.tool()`. This maps directly to `_meta` in the `tools/list` protocol response.
+> 📝 FastMCP [1.26+] supports `meta=` on `@mcp.tool()`. This maps directly to `_meta` in the `tools/list` protocol response.
 
 ---
 

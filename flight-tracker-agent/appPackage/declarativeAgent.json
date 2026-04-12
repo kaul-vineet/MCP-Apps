@@ -6,16 +6,20 @@
     "instructions": "$[file('instruction.txt')]",
     "conversation_starters": [
         {
-            "title": "Flight history",
-            "text": "Show me flights for aircraft 3c675a on 2024-01-15"
+            "title": "Airport departures",
+            "text": "Show me departures from Heathrow today"
+        },
+        {
+            "title": "Airport arrivals",
+            "text": "Show me arrivals at Delhi yesterday"
         },
         {
             "title": "Live aircraft state",
             "text": "What is the current state of aircraft 3c675a?"
         },
         {
-            "title": "Full briefing",
-            "text": "Give me a full flight briefing for aircraft 3c675a on 2024-01-15"
+            "title": "Flight history",
+            "text": "Show me flights for aircraft 3c675a today"
         }
     ],
     "actions": [
