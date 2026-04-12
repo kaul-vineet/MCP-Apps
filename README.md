@@ -36,9 +36,9 @@
 
 ---
 
-## ✈️ Flight Tracker
+## ✈️ FlightDesk
 
-The **Flight Tracker** is an MCP server that connects to M365 Copilot as a Declarative Agent. It supports three workflows, each rendering a live interactive widget inside the Copilot chat:
+**FlightDesk** is an MCP server that connects to M365 Copilot as a Declarative Agent. It supports three workflows, each rendering a live interactive widget inside the Copilot chat:
 
 | Workflow | Trigger | What happens |
 |---|---|---|
@@ -440,7 +440,7 @@ The widget is served live from the MCP server — no re-provision is needed when
 
 > ⚠️ **Widget shows shimmer, never renders** — ~~`window.openai` is injected after the script runs. A direct startup check always misses it. The polling loop (30 × 100ms) resolves this.~~ M365 now uses the MCP Apps `2026-01-26` sandbox proxy (`mcpwidget.js`). The widget **must** complete the `ui/initialize` handshake before the host delivers `ui/notifications/tool-result`. Without it, the shimmer never resolves regardless of polling. See [Issue 4](#issue-4----mcp-apps-initialization-handshake).
 
-> ⚠️ **"Error: Timed out" on row click** — The widget `callTool` timeout (default 20s) must exceed the MCP server's OpenSky timeout (15s) plus network overhead. If row clicks time out, verify the widget timeout is ≥ 20s and the server has `timeout=15.0` on all `httpx.AsyncClient` calls.
+> ⚠️ **"Error: Timed out" on row click** — The widget `callTool` timeout (20s) must exceed the MCP server's OpenSky timeout plus network overhead. `get_aircraft_track` uses a 12s httpx timeout (tighter than other tools) so the server always returns its error message well within the widget's deadline. If row clicks still time out, verify the widget timeout is ≥ 20s.
 
 > ⚠️ **Invisible widget in M365** — CSS `background: transparent` renders the widget invisible in the M365 iframe. Set `--color-bg: #ffffff` (light) and `--color-bg: #1a1a1a` (dark) explicitly.
 
@@ -461,9 +461,9 @@ The widget is served live from the MCP server — no re-provision is needed when
 
 **Using the Flight Tracker:**
 
-1. Click the agent picker and select **Flight Tracker**
+1. Click the agent picker and select **FlightDesk**
 2. Try an aircraft prompt — e.g. *Show me flights for aircraft 3C675A on 15 January 2024* → flight table renders; click "Check Live State →" in the footer
-3. Try an airport prompt — e.g. *Show departures from Heathrow yesterday* → departures table renders; click any row for live state
+3. Try an airport prompt — e.g. *Show departures from Heathrow today* → departures table renders; click any row for live state
 4. Try an arrivals prompt — e.g. *Show arrivals at JFK yesterday* → arrivals table renders; click any row for the flight track
 5. Viewed rows turn green with ✓ — your checked flights are visually tracked
 6. Try pre-built prompts: *Analyse the flying pattern for 3C675A over the last 2 days* or *Show arrivals at EDDF on 15 March 2026*
@@ -485,6 +485,8 @@ Widget not rendering? Work through this list in order:
 - [ ] Was the agent re-provisioned after updating `mcp-tools.json`?
 - [ ] Is the tunnel running with `--allow-anonymous`?
 - [ ] Does the tunnel URL in `ai-plugin.json` match the named tunnel hostname (not the ephemeral one)?
+- [ ] Is only **one** MCP server process running on port 3000? (A second process on the same port silently absorbs all traffic — the correct server shows zero requests and M365 gets no data)
+- [ ] Does `instruction.txt` list **every** tool under `## Tool usage`? (Tools not mentioned in instructions are never called — the LLM answers from its own knowledge instead)
 - [ ] Is `outputTemplate: ""` absent from `ai-plugin.json`?
 - [ ] ~~Is the widget handling both wrapped and unwrapped `toolOutput` formats?~~ Does the widget send `ui/initialize` (with `appInfo` + `appCapabilities`) on load and respond to the host's reply with `ui/notifications/initialized`? (See [Issue 4](#issue-4----mcp-apps-initialization-handshake))
 - [ ] Does the widget message listener set `rendered = true` before calling `render()` on `ui/notifications/tool-result`? (Prevents the 8s diagnostic overlay from overwriting rendered data)
@@ -669,7 +671,9 @@ Real-world friction points encountered during development. None are covered in t
 | **8s diagnostic overlay overwrites rendered widget** | `rendered` flag not set when `ui/notifications/tool-result` delivers data; 8s timeout fires and replaces content | Set `rendered = true` before calling `render()` in the postMessage handler |
 | **`ui/callTool` — Method not found** | Widget sent wrong method name for host-initiated tool calls | Use `method: 'tools/call'` with `arguments` key (not `args`); `ui/callTool` does not exist in the spec |
 | **"Error: [object Object]" on row click** | `msg.error` is an object `{code, message}` not a string; `new Error(object)` produces `[object Object]` | Use `msg.error.message` when constructing the error |
-| **"Error: Timed out" on row click** | Widget `callTool` timeout (10s) shorter than MCP server OpenSky timeout (15s) | Set widget timeout ≥ 20s; add `try/except httpx.TimeoutException` on all server-side OpenSky calls |
+| **"Error: Timed out" on row click** | Widget `callTool` timeout (10s) shorter than MCP server OpenSky timeout (15s) | Set widget timeout ≥ 20s; add `try/except httpx.TimeoutException` on all server-side OpenSky calls; reduce `get_aircraft_track` httpx timeout to 12s so server returns error before widget deadline |
+| **Port conflict — server gets zero requests** | Another process running on port 3000 silently absorbs all tunnel traffic; correct MCP server shows no `POST /mcp` logs and M365 returns knowledge-based answers instead of tool results | Run `netstat -ano | findstr :3000` to identify conflicting process; kill it before starting the MCP server |
+| **Agent never calls new tools** | `instruction.txt` only listed original tools — new tools added to the server were not mentioned; LLM answered from general knowledge rather than invoking them | Add every tool to `## Tool usage` in `instruction.txt` and re-provision; tools absent from instructions are silently skipped |
 | **WAM Error 3399614466** | `devtunnel user login` fails on Windows via auth broker | Use `devtunnel user login -d` (device code flow) |
 | **Ephemeral tunnel URL breaks manifest** | Named tunnel shows ephemeral URL at startup | Use only the permanent hostname in `ai-plugin.json` |
 | **OpenSky 403 Forbidden** | Wrong token endpoint | Use Keycloak realm URL: `auth.opensky-network.org/auth/realms/opensky-network/...` |
