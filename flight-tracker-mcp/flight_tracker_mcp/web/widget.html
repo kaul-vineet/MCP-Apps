@@ -230,6 +230,32 @@
   }
   if (window.openai && window.openai.theme) { applyTheme(window.openai.theme); }
 
+  // ── MCP Apps initialization handshake ─────────────────────────────────────
+  // Protocol: widget sends ui/initialize → host responds → widget sends
+  // ui/notifications/initialized → host delivers ui/notifications/tool-result
+  var INIT_REQ_ID = 'mcp-ui-init';
+  var mcpHandshakeDone = false;
+
+  function sendMcpInitialize() {
+    window.parent.postMessage({
+      jsonrpc: '2.0', id: INIT_REQ_ID,
+      method: 'ui/initialize',
+      params: {
+        appInfo: { name: 'flight-tracker-widget', version: '1.0' },
+        appCapabilities: {}
+      }
+    }, '*');
+  }
+
+  function sendMcpInitialized() {
+    if (mcpHandshakeDone) return;
+    mcpHandshakeDone = true;
+    window.parent.postMessage({
+      jsonrpc: '2.0',
+      method: 'ui/notifications/initialized'
+    }, '*');
+  }
+
   // ── callTool abstraction ───────────────────────────────────────────────────
   var pendingCalls = {};
   var callId = 0;
@@ -245,15 +271,15 @@
       pendingCalls[id] = { resolve: resolve, reject: reject };
       window.parent.postMessage({
         jsonrpc: '2.0', id: id,
-        method: 'ui/callTool',
-        params: { name: name, args: args }
+        method: 'tools/call',
+        params: { name: name, arguments: args || {} }
       }, '*');
       setTimeout(function() {
         if (pendingCalls[id]) {
           delete pendingCalls[id];
           reject(new Error('Timed out'));
         }
-      }, 10000);
+      }, 20000);
     });
   }
 
@@ -263,7 +289,9 @@
     if (window.openai && window.openai.notifyIntrinsicHeight) {
       window.openai.notifyIntrinsicHeight({ height: h });
     }
-    window.parent.postMessage({ method: 'ui/notifyIntrinsicHeight', params: { height: h } }, '*');
+    // jsonrpc: '2.0' is required — mcpwidget.js forwards this to M365 Copilot
+    // which validates the jsonrpc envelope before acting on the height.
+    window.parent.postMessage({ jsonrpc: '2.0', method: 'ui/notifyIntrinsicHeight', params: { height: h } }, '*');
   }
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -655,56 +683,147 @@
     notifyHeight();
   }
 
-  // ── Receive messages from host / test harness ──────────────────────────────
+  // ── Message listener ──────────────────────────────────────────────────────
+  var diagMessages = [];
   window.addEventListener('message', function(event) {
-    if (event.source !== window.parent) return;
     var msg = event.data;
     if (!msg) return;
 
-    if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/tool-result') {
-      render(msg.params.structuredContent);
+    try { diagMessages.push(JSON.stringify(msg)); } catch(e) { diagMessages.push(String(msg)); }
+
+    // MCP Apps handshake step 1 — sandbox proxy signals it is ready
+    // (mcpwidget.js sends SANDBOX_PROXY_READY / SANDBOX_RESOURCE_READY to inner iframe)
+    if (msg.type === 'SANDBOX_PROXY_READY' || msg.type === 'SANDBOX_RESOURCE_READY') {
+      sendMcpInitialize();
       return;
     }
 
+    // MCP Apps handshake step 2 — host responded to our ui/initialize
+    if (msg.id === INIT_REQ_ID) {
+      sendMcpInitialized();
+      return;
+    }
+
+    // Theme change
     if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/theme-change') {
-      applyTheme(msg.params.theme);
+      applyTheme(msg.params && msg.params.theme);
       return;
     }
 
+    // Tool result — primary delivery path after handshake
+    if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/tool-result') {
+      rendered = true;
+      render(msg.params && msg.params.structuredContent);
+      return;
+    }
+
+    // callTool response
     if (msg.jsonrpc === '2.0' && msg.id && pendingCalls[msg.id]) {
       var cb = pendingCalls[msg.id];
       delete pendingCalls[msg.id];
-      if (msg.result) { cb.resolve(msg.result); }
-      else { cb.reject(new Error(msg.error || 'Tool call failed')); }
+      if (msg.result) { cb.resolve(msg.result.structuredContent !== undefined ? msg.result.structuredContent : msg.result); }
+      else { cb.reject(new Error((msg.error && msg.error.message) || 'Tool call failed')); }
       return;
+    }
+
+    // Fallback — try to extract structuredContent from any shape
+    var sc = (msg.params && msg.params.structuredContent) ||
+             (msg.result && msg.result.structuredContent) ||
+             (msg.structuredContent) ||
+             (msg.data && msg.data.structuredContent);
+    if (!rendered && sc !== undefined) {
+      rendered = true;
+      render(sc);
     }
   }, { passive: true });
 
-  // ── window.openai.toolOutput (M365 + modern ChatGPT) ──────────────────────
+  // ── window.openai.toolOutput — watch via setter so timing doesn't matter ──
   var rendered = false;
+
+  function extractData(out) {
+    if (!out) return null;
+    return (out.structuredContent !== undefined) ? out.structuredContent : out;
+  }
+
   function tryRenderFromOpenAI() {
     if (rendered) return;
     if (window.openai) {
-      if (window.openai.theme)      { applyTheme(window.openai.theme); }
+      if (window.openai.theme) { applyTheme(window.openai.theme); }
       if (window.openai.toolOutput) {
-        var out  = window.openai.toolOutput;
-        var data = (out && out.structuredContent !== undefined) ? out.structuredContent : out;
-        render(data);
+        render(extractData(window.openai.toolOutput));
         rendered = true;
       }
     }
   }
 
+  // Install a property-setter trap on window.openai so we fire the moment
+  // the sandbox proxy injects toolOutput — no polling gap possible.
+  (function() {
+    var _oa = window.openai;
+    function watchObj(obj) {
+      if (!obj) return;
+      var _to = obj.toolOutput;
+      try {
+        Object.defineProperty(obj, 'toolOutput', {
+          configurable: true,
+          get: function() { return _to; },
+          set: function(v) {
+            _to = v;
+            if (!rendered && v) { render(extractData(v)); rendered = true; }
+          }
+        });
+      } catch(e) {}
+      if (_to && !rendered) { render(extractData(_to)); rendered = true; }
+    }
+    if (_oa) {
+      watchObj(_oa);
+    } else {
+      try {
+        Object.defineProperty(window, 'openai', {
+          configurable: true,
+          get: function() { return _oa; },
+          set: function(v) { _oa = v; watchObj(v); }
+        });
+      } catch(e) {}
+    }
+  })();
+
+  // Resolve host shimmer immediately so "Loading flight data..." is visible.
+  notifyHeight();
+
+  // Step 1 of MCP Apps handshake — send on load (also re-sent on SANDBOX_PROXY_READY)
+  sendMcpInitialize();
+
   tryRenderFromOpenAI();
 
+  // Fallback poll — covers any edge cases the setter trap misses
   if (!rendered) {
     var attempts = 0;
     var poll = setInterval(function() {
       attempts++;
       tryRenderFromOpenAI();
-      if (rendered || attempts >= 30) { clearInterval(poll); }
+      if (rendered || attempts >= 300) { clearInterval(poll); }
     }, 100);
   }
+
+  // Diagnostic overlay — if still no data after 8s, show all received messages
+  // so we can identify the sandbox message protocol.
+  setTimeout(function() {
+    if (rendered) return;
+    var root = document.getElementById('root');
+    var msgs = diagMessages.length
+      ? diagMessages.map(function(m, i) { return '<b>' + (i+1) + ':</b> ' + m; }).join('<br><br>')
+      : '(none)';
+    var oa = window.openai;
+    var oaKeys = oa ? Object.keys(oa).join(', ') : 'undefined';
+    root.innerHTML =
+      '<div class="empty" style="text-align:left;padding:12px;font-size:11px">' +
+        '<b>No data after 8s — sandbox protocol diagnostic</b><br><br>' +
+        '<b>window.openai keys:</b> ' + oaKeys + '<br><br>' +
+        '<b>Messages received (' + diagMessages.length + '):</b><br>' + msgs +
+      '</div>';
+    notifyHeight();
+  }, 8000);
 </script>
 </body>
 </html>

@@ -32,7 +32,7 @@ async def flight_widget() -> str:
 # ── OpenSky API ────────────────────────────────────────────────────────────────
 
 async def get_opensky_token() -> str:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
             data={
@@ -83,17 +83,23 @@ async def get_flights_by_aircraft(
 
     token = await get_opensky_token()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://opensky-network.org/api/flights/aircraft",
-            params={"icao24": icao24, "begin": begin, "end": end},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if resp.status_code == 404:
-            flights_raw = []
-        else:
-            resp.raise_for_status()
-            flights_raw = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://opensky-network.org/api/flights/aircraft",
+                params={"icao24": icao24, "begin": begin, "end": end},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 404:
+                flights_raw = []
+            else:
+                resp.raise_for_status()
+                try:
+                    flights_raw = resp.json() if resp.content else []
+                except ValueError:
+                    flights_raw = []
+    except httpx.TimeoutException:
+        flights_raw = []
 
     flights = [
         {
@@ -146,7 +152,7 @@ async def get_aircraft_state(icao24: str) -> types.CallToolResult:
     """
     token = await get_opensky_token()
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             "https://opensky-network.org/api/states/all",
             params={"icao24": icao24},
@@ -226,17 +232,23 @@ async def get_airport_departures(
 
     token = await get_opensky_token()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://opensky-network.org/api/flights/departure",
-            params={"airport": airport.upper(), "begin": begin, "end": end},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if resp.status_code == 404:
-            flights_raw = []
-        else:
-            resp.raise_for_status()
-            flights_raw = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://opensky-network.org/api/flights/departure",
+                params={"airport": airport.upper(), "begin": begin, "end": end},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 404:
+                flights_raw = []
+            else:
+                resp.raise_for_status()
+                try:
+                    flights_raw = resp.json() if resp.content else []
+                except ValueError:
+                    flights_raw = []
+    except httpx.TimeoutException:
+        flights_raw = []
 
     flights = [
         {
@@ -300,17 +312,23 @@ async def get_airport_arrivals(
 
     token = await get_opensky_token()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://opensky-network.org/api/flights/arrival",
-            params={"airport": airport.upper(), "begin": begin, "end": end},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if resp.status_code == 404:
-            flights_raw = []
-        else:
-            resp.raise_for_status()
-            flights_raw = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://opensky-network.org/api/flights/arrival",
+                params={"airport": airport.upper(), "begin": begin, "end": end},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if resp.status_code == 404:
+                flights_raw = []
+            else:
+                resp.raise_for_status()
+                try:
+                    flights_raw = resp.json() if resp.content else []
+                except ValueError:
+                    flights_raw = []
+    except httpx.TimeoutException:
+        flights_raw = []
 
     flights = [
         {
@@ -363,35 +381,42 @@ async def get_aircraft_track(icao24: str, time: int = 0) -> types.CallToolResult
     """
     token = await get_opensky_token()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://opensky-network.org/api/tracks/all",
-            params={"icao24": icao24, "time": time},
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        if resp.status_code == 404:
-            structured: dict = {"icao24": icao24, "found": False}
-            summary = f"No track found for {icao24}."
-        else:
-            resp.raise_for_status()
-            data = resp.json()
-            path = data.get("path") or []
-            first = path[0]  if path else None
-            last  = path[-1] if path else None
-            structured = {
-                "icao24":          icao24,
-                "found":           True,
-                "callsign":        (data.get("callsign") or "").strip() or None,
-                "start_time":      format_unix(data["startTime"]) if data.get("startTime") else None,
-                "end_time":        format_unix(data["endTime"])   if data.get("endTime")   else None,
-                "waypoints":       len(path),
-                "first_position":  {"lat": first[1], "lon": first[2]} if first else None,
-                "last_position":   {"lat": last[1],  "lon": last[2]}  if last  else None,
-            }
-            summary = (
-                f"Track for {icao24} ({structured['callsign'] or 'unknown callsign'}): "
-                f"{len(path)} waypoints from {structured['start_time']} to {structured['end_time']}."
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.get(
+                "https://opensky-network.org/api/tracks/all",
+                params={"icao24": icao24, "time": time},
+                headers={"Authorization": f"Bearer {token}"},
             )
+            if resp.status_code == 404:
+                structured: dict = {"icao24": icao24, "found": False}
+                summary = f"No track found for {icao24}."
+            else:
+                resp.raise_for_status()
+                try:
+                    data = resp.json() if resp.content else {}
+                except ValueError:
+                    data = {}
+                path = data.get("path") or []
+                first = path[0]  if path else None
+                last  = path[-1] if path else None
+                structured = {
+                    "icao24":          icao24,
+                    "found":           True,
+                    "callsign":        (data.get("callsign") or "").strip() or None,
+                    "start_time":      format_unix(data["startTime"]) if data.get("startTime") else None,
+                    "end_time":        format_unix(data["endTime"])   if data.get("endTime")   else None,
+                    "waypoints":       len(path),
+                    "first_position":  {"lat": first[1], "lon": first[2]} if first else None,
+                    "last_position":   {"lat": last[1],  "lon": last[2]}  if last  else None,
+                }
+                summary = (
+                    f"Track for {icao24} ({structured['callsign'] or 'unknown callsign'}): "
+                    f"{len(path)} waypoints from {structured['start_time']} to {structured['end_time']}."
+                )
+    except httpx.TimeoutException:
+        structured = {"icao24": icao24, "found": False}
+        summary = f"No track found for {icao24} (OpenSky timed out)."
 
     return types.CallToolResult(
         content=[types.TextContent(type="text", text=summary)],

@@ -18,14 +18,13 @@
 
 ---
 
-> **TL;DR** — Build a Python MCP server that renders a live interactive flight table inside M365 Copilot. Three non-obvious fixes determine whether the widget appears: `_meta` placement on the tool definition, the `mcp-tools.json` snapshot, and the `toolOutput` data format. If the widget is not rendering, skip directly to [Critical Troubleshooting](#critical-troubleshooting).
+> **TL;DR** — Build a Python MCP server that renders a live interactive flight table inside M365 Copilot. ~~Three non-obvious fixes determine whether the widget appears: `_meta` placement on the tool definition, the `mcp-tools.json` snapshot, and the `toolOutput` data format.~~ **Four non-obvious fixes determine whether the widget appears:** `_meta` placement on the tool definition, the `mcp-tools.json` snapshot, the MCP Apps initialization handshake (`ui/initialize` → `ui/notifications/initialized`), and the correct `tools/call` method for widget-initiated tool calls. If the widget is not rendering, skip directly to [Critical Troubleshooting](#critical-troubleshooting).
 
 ---
 
 ## Contents
 
 - [✈️ Flight Tracker](#️-flight-tracker)
-- [What Are MCP Apps?](#what-are-mcp-apps)
 - [Project Structure](#project-structure)
 - [Code Walkthrough](#code-walkthrough)
 - [Prerequisites](#prerequisites)
@@ -80,12 +79,14 @@ tools/call  →  get_flights_by_aircraft(icao24, begin_date, end_date)
 [server.py]  →  OpenSky OAuth2 token  →  GET /api/flights/aircraft
                returns CallToolResult { content, structuredContent }
        │
-M365 fetches ui://widget/flights.html  →  renders in sandboxed iframe
-               injects window.openai.toolOutput = structuredContent
+M365 fetches ui://widget/flights.html  →  renders in sandboxed iframe (mcpwidget.js proxy)
+       │
+Widget sends ui/initialize  →  host responds  →  widget sends ui/notifications/initialized
+               host delivers ui/notifications/tool-result { params.structuredContent }
        │
 Widget renders flight table  →  [User clicks "Check Live State →"]
        │
-window.openai.callTool("get_aircraft_state", { icao24 })  →  GET /api/states/all
+postMessage tools/call("get_aircraft_state", { icao24 })  →  MCP server  →  GET /api/states/all
        │
 Live state card appears in widget footer
 ```
@@ -100,7 +101,7 @@ tools/call  →  get_airport_departures(airport, begin_date, end_date)
        │
 Widget renders departures table  →  [User clicks a row]
        │
-window.openai.callTool("get_aircraft_state", { icao24 })
+postMessage tools/call("get_aircraft_state", { icao24 })
        │
 Live state expands inline  →  row turns green with ✓
 ```
@@ -115,85 +116,11 @@ tools/call  →  get_airport_arrivals(airport, begin_date, end_date)
        │
 Widget renders arrivals table  →  [User clicks a row]
        │
-window.openai.callTool("get_aircraft_track", { icao24, time: first_seen_ts })
-               → GET /api/tracks/all
+postMessage tools/call("get_aircraft_track", { icao24, time: first_seen_ts })
+               → MCP server  →  GET /api/tracks/all
        │
 Track detail expands inline  →  row turns green with ✓
 ```
-
----
-
-## What Are MCP Apps?
-
-[MCP Apps](https://apps.extensions.modelcontextprotocol.io/api/documents/Overview.html) is an **official extension to the Model Context Protocol** that enables MCP servers to deliver interactive HTML user interfaces directly inside AI chat hosts. The distinction is between a civil servant reading out a spreadsheet aloud and simply handing it over — MCP Apps opts for the latter.
-
-Before MCP Apps, every host (ChatGPT, Claude, M365) had incompatible UI mechanisms. MCP Apps standardises this into a **write-once, render-anywhere** pattern.
-
-### Architecture
-
-```
-MCP Server              Host (M365 / ChatGPT)       Widget (sandboxed iframe)
-──────────────────      ─────────────────────       ─────────────────────────
-tools/list          →   reads _meta.ui.resourceUri
-resources/read      →   renders iframe           →   receives structuredContent
-tools/call          →   proxies postMessage      ←→  calls back via callTool
-                        enforces CSP                 notifies height
-```
-
-Three entities:
-- **Server** — declares tools with `_meta.ui.resourceUri` pointing to HTML resources
-- **Host** — fetches the HTML resource, renders it in a sandboxed iframe
-- **Widget** — receives `structuredContent` from the tool result, calls tools back, reports height
-
-### Key Concepts
-
-| Concept | What it does |
-|---|---|
-| `ui://` URI scheme | Widget resource address, e.g. `ui://widget/flights.html` |
-| `text/html;profile=mcp-app` | MIME type that tells the host this is a widget, not a document |
-| `_meta.ui.resourceUri` | On the **tool definition** — links a tool to its widget |
-| `structuredContent` | Rich typed data in the tool result; keeps model context clean |
-| `window.openai.toolOutput` | How the widget receives the tool result in ChatGPT / M365 |
-| `window.openai.callTool` | Widget calling back to an MCP tool |
-| `window.openai.notifyIntrinsicHeight` | Auto-sizes the iframe to content height |
-
-### MCP Apps Widgets vs Adaptive Cards
-
-Developers familiar with Microsoft 365 extensibility will reasonably ask: why not just use Adaptive Cards?
-
-Adaptive Cards are a JSON-based declarative schema. The host renders them natively — consistent styling across Teams, Outlook, and Copilot, with zero custom code. They are well-suited to structured notifications, simple forms, and approval flows.
-
-MCP Apps widgets are full HTML/CSS/JavaScript running in a sandboxed iframe. The developer controls everything.
-
-| Capability | Adaptive Cards | MCP Apps Widget |
-|---|---|---|
-| Rendering | Host-rendered from JSON schema | Browser-rendered HTML in iframe |
-| Interactivity | Predefined action types only | Any JavaScript interaction |
-| Real-time data | Static at render; refresh requires a new card | Calls back to MCP server at any time via `callTool` |
-| Styling | Host controls appearance | Full CSS control; consistent everywhere |
-| Custom layout | Constrained by card schema | Unconstrained |
-| Portability | Teams, Outlook, Copilot, many hosts | Any MCP Apps compliant host |
-| Build complexity | JSON only; no code | Requires HTML/JS development |
-
-**For the Flight Tracker specifically:** An Adaptive Card could display the flight table — but only as a static snapshot. Clicking a row to fetch live aircraft state is not possible within a card; it would require the user to ask a follow-up question, triggering a second tool call and a second card.
-
-The Flight Tracker widget handles this in a single interaction: the table renders, the user clicks a row, `callTool` fires `get_aircraft_state`, and the live state appears inline — no second prompt, no additional model invocation.
-
-> 💡 **Rule of thumb** — Use Adaptive Cards when the data is complete at render time. Use MCP Apps widgets when the UI needs to remain active after the initial tool call returns. Adaptive Cards are a very competent filing clerk. The MCP Apps widget is the analyst who follows up.
-
-### M365 Copilot Support Status
-
-M365 Copilot supports the OpenAI Apps SDK widget bridge. Full capability matrix: [Microsoft Learn – UI widgets for declarative agents](https://learn.microsoft.com/en-us/microsoft-365-copilot/extensibility/declarative-agent-ui-widgets).
-
-Supported APIs:
-- `window.openai.toolOutput` ✅
-- `window.openai.callTool` ✅
-- `window.openai.notifyIntrinsicHeight` ✅
-- `window.openai.theme` ✅
-- `window.openai.requestDisplayMode` ✅ (fullscreen only)
-- `window.openai.sendFollowUpMessage` ✅
-
-> ⚠️ **Preview note** — MCP Apps native support (`@modelcontextprotocol/ext-apps`) is listed as "coming soon" on the M365 docs. Current support is via the **OpenAI Apps SDK bridge** (`window.openai.*`). This will change — watch the M365 release notes.
 
 ---
 
@@ -308,13 +235,15 @@ The widget supports **three view modes**, determined by the shape of `structured
 **Checked row UX** — after a row's detail data loads, the row turns green and shows `✓`. The state persists when the row is collapsed.
 
 Key behaviours:
-- Receives data via `window.openai.toolOutput`; dispatches to the correct view via `render()`
+- **MCP Apps handshake** — on load, widget sends `ui/initialize` (with `appInfo`, `appCapabilities`); on host response, sends `ui/notifications/initialized`; data arrives as `ui/notifications/tool-result` via `postMessage`
+- ~~Receives data via `window.openai.toolOutput`~~ (retained as fallback for older hosts); primary delivery is `ui/notifications/tool-result` → `params.structuredContent` → `render()`
 - `toggleRow(idx)` — branches on `viewMode` to call `get_aircraft_state` or `get_aircraft_track`
 - `fetchLiveState()` — aircraft view footer button; calls `get_aircraft_state` for the whole aircraft
+- **Widget-initiated tool calls** — via `postMessage { method: 'tools/call', params: { name, arguments } }`; ~~`window.openai.callTool`~~ retained as fallback
 - `renderDetail` / `renderTrackDetail` / `renderStateCard` — view-specific rendering functions
-- Light/dark theming via CSS custom properties applied from `window.openai.theme`
-- Auto-height notification via `window.openai.notifyIntrinsicHeight`
-- Polling pattern to handle M365's delayed injection of `window.openai`
+- Light/dark theming via CSS custom properties applied from host theme notifications
+- Auto-height notification via `ui/notifyIntrinsicHeight` postMessage (+ `window.openai.notifyIntrinsicHeight` fallback)
+- ~~Polling pattern to handle M365's delayed injection of `window.openai`~~ (retained as fallback; primary path is the handshake protocol)
 
 > 📝 **Note** — Developers extending the widget should review `render()`, `toggleRow()`, `checkedRows`, and the `--color-*` CSS variables for theming.
 
@@ -408,11 +337,11 @@ A named tunnel provides a **permanent public hostname** that does not change bet
 devtunnel user login -d
 
 # Create named tunnel (run once)
-devtunnel create flight-tracker --allow-anonymous
-devtunnel port create flight-tracker --port-number 3000
+devtunnel create flight-tracker-v2 --allow-anonymous
+devtunnel port create flight-tracker-v2 --port-number 3000
 
 # Start tunnel (each session)
-devtunnel host flight-tracker --allow-anonymous
+devtunnel host flight-tracker-v2 --allow-anonymous
 ```
 
 Permanent URL format: `https://flight-tracker-3000.{region}.devtunnels.ms`
@@ -420,7 +349,7 @@ Permanent URL format: `https://flight-tracker-3000.{region}.devtunnels.ms`
 Verify the tunnel is live:
 
 ```bash
-curl https://flight-tracker-3000.inc1.devtunnels.ms/mcp
+curl https://knrz0t9g-3000.inc1.devtunnels.ms/mcp
 ```
 
 Expected: JSON response.
@@ -429,7 +358,7 @@ Expected: JSON response.
 
 > ⚠️ **WAM Error (Error Code: 3399614466)** — `devtunnel user login` fails on Windows via the Windows Authentication Manager broker. Use `devtunnel user login -d` to force device code flow in the browser.
 
-> ⚠️ **Ephemeral URL on restart** — The browser connect URL shown at startup (e.g. `lzvf27m0.inc1.devtunnels.ms`) is always ephemeral. The *named* tunnel hostname (`flight-tracker-3000.inc1.devtunnels.ms`) is permanent. Only the permanent hostname belongs in `ai-plugin.json`.
+> ⚠️ **Ephemeral URL on restart** — The browser connect URL shown at startup (e.g. `lzvf27m0.inc1.devtunnels.ms`) is always ephemeral. The *named* tunnel hostname (`knrz0t9g-3000.inc1.devtunnels.ms`) is permanent. Only the permanent hostname belongs in `ai-plugin.json`.
 
 ---
 
@@ -479,7 +408,7 @@ Use **Send Mock Flights**, **Send Mock Departures**, or **Send Mock Arrivals** t
 npx @modelcontextprotocol/inspector
 ```
 
-Connect using **Streamable HTTP** transport to `https://flight-tracker-3000.inc1.devtunnels.ms/mcp`.
+Connect using **Streamable HTTP** transport to `https://knrz0t9g-3000.inc1.devtunnels.ms/mcp`.
 
 Verify the following before proceeding to M365:
 
@@ -504,11 +433,14 @@ The widget is served live from the MCP server — no re-provision is needed when
 - `fetchLiveState()` — aircraft view footer button, calls `get_aircraft_state` for the whole aircraft
 - `renderDetail` / `renderTrackDetail` / `renderStateCard` — view-specific rendering functions
 - `checkedRows` — tracks which rows have loaded data; drives the green row + ✓ checkmark UX
-- `tryRenderFromOpenAI()` + polling loop — handles M365's delayed `window.openai` injection
+- `tryRenderFromOpenAI()` + polling loop — ~~handles M365's delayed `window.openai` injection~~ retained as fallback; primary data delivery is now the MCP Apps handshake
+- `sendMcpInitialize()` / `sendMcpInitialized()` — implement the `ui/initialize` → `ui/notifications/initialized` handshake required by M365 (spec `2026-01-26`)
 
 #### Troubleshooting
 
-> ⚠️ **"Loading flight data..." stuck in M365** — `window.openai` is injected after the script runs. A direct startup check always misses it. The polling loop (30 × 100ms) resolves this.
+> ⚠️ **Widget shows shimmer, never renders** — ~~`window.openai` is injected after the script runs. A direct startup check always misses it. The polling loop (30 × 100ms) resolves this.~~ M365 now uses the MCP Apps `2026-01-26` sandbox proxy (`mcpwidget.js`). The widget **must** complete the `ui/initialize` handshake before the host delivers `ui/notifications/tool-result`. Without it, the shimmer never resolves regardless of polling. See [Issue 4](#issue-4----mcp-apps-initialization-handshake).
+
+> ⚠️ **"Error: Timed out" on row click** — The widget `callTool` timeout (default 20s) must exceed the MCP server's OpenSky timeout (15s) plus network overhead. If row clicks time out, verify the widget timeout is ≥ 20s and the server has `timeout=15.0` on all `httpx.AsyncClient` calls.
 
 > ⚠️ **Invisible widget in M365** — CSS `background: transparent` renders the widget invisible in the M365 iframe. Set `--color-bg: #ffffff` (light) and `--color-bg: #1a1a1a` (dark) explicitly.
 
@@ -519,7 +451,7 @@ The widget is served live from the MCP server — no re-provision is needed when
 **Steps:**
 
 1. VS Code → Agents Toolkit → **Create a New Agent/App** → Declarative Agent → Start with MCP Server
-2. Enter MCP server URL: `https://flight-tracker-3000.inc1.devtunnels.ms/mcp`
+2. Enter MCP server URL: `https://knrz0t9g-3000.inc1.devtunnels.ms/mcp`
 3. Open `.vscode/mcp.json` → click **Start**, then **ATK: Fetch action from MCP** → select `ai-plugin.json`
 4. Select all tools → authentication: **None** (development mode)
 5. Confirm the runtime URL in `ai-plugin.json` matches the named tunnel URL
@@ -542,7 +474,7 @@ The widget is served live from the MCP server — no re-provision is needed when
 
 ## Critical Troubleshooting
 
-> ⚠️ These three issues are undocumented and will silently prevent the widget from rendering in M365. Work through the diagnostic checklist first, then refer to the detailed fix for any failing item.
+> ⚠️ ~~These three issues are undocumented~~ **These four issues** are undocumented and will silently prevent the widget from rendering in M365. Work through the diagnostic checklist first, then refer to the detailed fix for any failing item.
 
 ### Diagnostic Checklist
 
@@ -554,7 +486,9 @@ Widget not rendering? Work through this list in order:
 - [ ] Is the tunnel running with `--allow-anonymous`?
 - [ ] Does the tunnel URL in `ai-plugin.json` match the named tunnel hostname (not the ephemeral one)?
 - [ ] Is `outputTemplate: ""` absent from `ai-plugin.json`?
-- [ ] Is the widget handling both wrapped and unwrapped `toolOutput` formats?
+- [ ] ~~Is the widget handling both wrapped and unwrapped `toolOutput` formats?~~ Does the widget send `ui/initialize` (with `appInfo` + `appCapabilities`) on load and respond to the host's reply with `ui/notifications/initialized`? (See [Issue 4](#issue-4----mcp-apps-initialization-handshake))
+- [ ] Does the widget message listener set `rendered = true` before calling `render()` on `ui/notifications/tool-result`? (Prevents the 8s diagnostic overlay from overwriting rendered data)
+- [ ] Do widget-initiated tool calls use `method: 'tools/call'` with `arguments` (not `args`) in params?
 
 ---
 
@@ -642,17 +576,79 @@ Re-provision via Agents Toolkit after updating this file.
 
 ---
 
-### `window.openai.toolOutput` data format varies between hosts
+### ~~`window.openai.toolOutput` data format varies between hosts~~ MCP Apps data delivery via postMessage (updated)
 
-In M365, `window.openai.toolOutput` may deliver `structuredContent` as the top-level object rather than wrapped inside `{ structuredContent: {...} }`. The widget must handle both:
+~~In M365, `window.openai.toolOutput` may deliver `structuredContent` as the top-level object rather than wrapped inside `{ structuredContent: {...} }`. The widget must handle both:~~
+
+~~```javascript~~
+~~var out = window.openai.toolOutput;~~
+~~var data = (out && out.structuredContent !== undefined)~~
+~~  ? out.structuredContent~~
+~~  : out;~~
+~~render(data);~~
+~~```~~
+
+**Updated (spec `2026-01-26`)** — M365 now delivers tool results via the MCP Apps postMessage protocol, not `window.openai.toolOutput`. The widget must complete the initialization handshake first (see Issue 4), after which the host sends `ui/notifications/tool-result`. The `window.openai.toolOutput` path is retained as a fallback only.
 
 ```javascript
-var out = window.openai.toolOutput;
-var data = (out && out.structuredContent !== undefined)
-  ? out.structuredContent
-  : out;
-render(data);
+// Primary — MCP Apps postMessage protocol
+window.addEventListener('message', function(event) {
+  var msg = event.data;
+  if (msg.jsonrpc === '2.0' && msg.method === 'ui/notifications/tool-result') {
+    rendered = true;
+    render(msg.params && msg.params.structuredContent);
+  }
+});
+
+// Fallback — legacy window.openai path (older hosts)
+var out = window.openai && window.openai.toolOutput;
+var data = (out && out.structuredContent !== undefined) ? out.structuredContent : out;
+if (data) render(data);
 ```
+
+> ⚠️ **`rendered = true` must be set before calling `render()`** in the postMessage handler. Without it, the 8-second diagnostic overlay fires and overwrites the rendered widget even after data has arrived.
+
+---
+
+### Issue 4 — MCP Apps initialization handshake
+
+M365 Copilot (as of early 2026) runs widgets inside a `mcpwidget.js` sandbox proxy. **The host will not deliver `ui/notifications/tool-result` until the widget completes the initialization handshake.** A shimmer with no data is the symptom — the tool completes and the text response appears in chat, but the widget stays blank.
+
+**The handshake (three steps):**
+
+```javascript
+// Step 1 — widget sends on load (and again on SANDBOX_PROXY_READY)
+window.parent.postMessage({
+  jsonrpc: '2.0', id: 'mcp-ui-init',
+  method: 'ui/initialize',
+  params: {
+    appInfo: { name: 'your-widget-name', version: '1.0' },
+    appCapabilities: {}
+  }
+}, '*');
+
+// Step 2 — host responds to id 'mcp-ui-init'; widget then sends:
+window.parent.postMessage({
+  jsonrpc: '2.0',
+  method: 'ui/notifications/initialized'
+}, '*');
+
+// Step 3 — host sends tool result; widget renders:
+// { jsonrpc: '2.0', method: 'ui/notifications/tool-result',
+//   params: { structuredContent: { ... } } }
+```
+
+> ⚠️ `appInfo` and `appCapabilities` are **required** fields — omitting either causes the host to reject `ui/initialize` with a `-32603` validation error. The host may still deliver `ui/notifications/tool-result` after a rejected handshake in some builds, but this is not guaranteed.
+
+> ⚠️ **Widget-initiated tool calls** use `method: 'tools/call'` (not `window.openai.callTool` or `ui/callTool`), with `arguments` as the parameter key:
+> ```javascript
+> window.parent.postMessage({
+>   jsonrpc: '2.0', id: callId,
+>   method: 'tools/call',
+>   params: { name: 'get_aircraft_state', arguments: { icao24: '3c675a' } }
+> }, '*');
+> ```
+> The response arrives as `{ id: callId, result: { structuredContent: { ... } } }`. Unwrap `result.structuredContent` before passing to your rendering functions.
 
 ---
 
@@ -669,11 +665,16 @@ Real-world friction points encountered during development. None are covered in t
 | Challenge | What happened | Fix |
 |---|---|---|
 | **Widget invisible in M365** | `background: transparent` renders the iframe invisible | Set `--color-bg: #ffffff` (light) and `#1a1a1a` (dark) explicitly in CSS |
-| **"Loading flight data..." stuck** | `window.openai` injected after script runs | Poll 30 × 100ms until available |
+| **~~"Loading flight data..." stuck~~ Widget shimmer never resolves** | ~~`window.openai` injected after script runs~~ M365 moved to `mcpwidget.js` sandbox proxy — host holds tool result until widget completes `ui/initialize` handshake | ~~Poll 30 × 100ms until available~~ Implement `ui/initialize` → `ui/notifications/initialized` handshake (see [Issue 4](#issue-4----mcp-apps-initialization-handshake)) |
+| **8s diagnostic overlay overwrites rendered widget** | `rendered` flag not set when `ui/notifications/tool-result` delivers data; 8s timeout fires and replaces content | Set `rendered = true` before calling `render()` in the postMessage handler |
+| **`ui/callTool` — Method not found** | Widget sent wrong method name for host-initiated tool calls | Use `method: 'tools/call'` with `arguments` key (not `args`); `ui/callTool` does not exist in the spec |
+| **"Error: [object Object]" on row click** | `msg.error` is an object `{code, message}` not a string; `new Error(object)` produces `[object Object]` | Use `msg.error.message` when constructing the error |
+| **"Error: Timed out" on row click** | Widget `callTool` timeout (10s) shorter than MCP server OpenSky timeout (15s) | Set widget timeout ≥ 20s; add `try/except httpx.TimeoutException` on all server-side OpenSky calls |
 | **WAM Error 3399614466** | `devtunnel user login` fails on Windows via auth broker | Use `devtunnel user login -d` (device code flow) |
 | **Ephemeral tunnel URL breaks manifest** | Named tunnel shows ephemeral URL at startup | Use only the permanent hostname in `ai-plugin.json` |
 | **OpenSky 403 Forbidden** | Wrong token endpoint | Use Keycloak realm URL: `auth.opensky-network.org/auth/realms/opensky-network/...` |
 | **OpenSky 401 Unauthorised** | Tried HTTP Basic Auth | Use OAuth2 `grant_type=client_credentials` + Bearer token |
+| **OpenSky body hang** | OpenSky returns HTTP 200 headers then hangs sending the body; `httpx` awaits indefinitely | Set `timeout=15.0` on every `httpx.AsyncClient` instance; guard with `try/except httpx.TimeoutException` |
 | **`outputTemplate: ""` kills the widget** | Added to suppress model text; M365 abandons widget rendering entirely | Remove it; use `instruction.txt` instead |
 | **No console in M365 iframe** | Can't open DevTools inside the hosted widget | Test fully with `widget_test.html` locally before deploying to M365 |
 
@@ -708,11 +709,11 @@ These are real limitations where M365 falls short of the spec, of ChatGPT's impl
 
 | Gap | Impact |
 |---|---|
-| **M365 uses OpenAI Apps SDK, not MCP Apps open spec** | Microsoft Learn states *"Support for MCP Apps is coming soon"* — current support is the OpenAI Apps SDK bridge (`window.openai.*`). Enterprises building now depend on an informal bridge, not the open standard. |
+| ~~**M365 uses OpenAI Apps SDK, not MCP Apps open spec** — Microsoft Learn states *"Support for MCP Apps is coming soon"* — current support is the OpenAI Apps SDK bridge (`window.openai.*`). Enterprises building now depend on an informal bridge, not the open standard.~~ **M365 now uses the MCP Apps `2026-01-26` open spec** — the `mcpwidget.js` sandbox proxy implements the `ui/initialize` handshake and `ui/notifications/tool-result` delivery defined in the spec. The `window.openai.*` bridge is retained as a fallback but is no longer the primary path. |
 | **`widgetSessionId` unsupported in M365** | Supported in ChatGPT, missing in M365. Without it, widget state resets on every tool call — even within the same conversation. Multi-step workflows require a backend to persist state between tool calls. |
 | **`mcp-tools.json` is a manual step** | ATK snapshots `tools/list` into a static file at provision time, stripping `_meta`. Every tool change requires manual file edit + re-provision. All other M365 extensibility technologies (API plugins, Graph connectors) fetch definitions live. Acknowledged as temporary by Microsoft. |
 | **No iframe debug tooling** | Developer Mode shows orchestrator layer only — no widget-level console, no JS errors, no rendering visibility. Requires a local test harness for all widget debugging. |
-| **Python/Node.js parity gap** | `@modelcontextprotocol/ext-apps` is TypeScript-only. Python developers must hand-roll the `window.openai.*` bridge — no `useApp()` hook equivalent. |
+| **Python/Node.js parity gap** | `@modelcontextprotocol/ext-apps` is TypeScript-only. ~~Python developers must hand-roll the `window.openai.*` bridge — no `useApp()` hook equivalent.~~ Python developers must hand-roll the `ui/initialize` postMessage handshake — no `useApp()` hook equivalent. |
 | **`ext-apps` capability not announced by Python SDK** | MCP Inspector shows no MCP Apps capability for Python servers — currently harmless but may matter as hosts gate features behind capability negotiation. |
 
 ---
@@ -724,10 +725,10 @@ These are real limitations where M365 falls short of the spec, of ChatGPT's impl
 | Task | Command |
 |---|---|
 | Start MCP server | `python -m flight_tracker_mcp.server` |
-| Start named tunnel | `devtunnel host flight-tracker --allow-anonymous` |
+| Start named tunnel | `devtunnel host flight-tracker-v2 --allow-anonymous` |
 | Login (first time) | `devtunnel user login -d` |
-| Create named tunnel | `devtunnel create flight-tracker --allow-anonymous` |
-| Add tunnel port | `devtunnel port create flight-tracker --port-number 3000` |
+| Create named tunnel | `devtunnel create flight-tracker-v2 --allow-anonymous` |
+| Add tunnel port | `devtunnel port create flight-tracker-v2 --port-number 3000` |
 | Run MCP Inspector | `npx @modelcontextprotocol/inspector` |
 | Test widget locally | Open `tests/widget_test.html` in browser |
 
@@ -770,4 +771,6 @@ These are real limitations where M365 falls short of the spec, of ChatGPT's impl
 | OpenSky Network API | https://openskynetwork.github.io/opensky-api/ |
 | Dev Tunnels Docs | https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/ |
 | Widget Host URL Generator | https://aka.ms/mcpwidgeturlgenerator |
+
+
 

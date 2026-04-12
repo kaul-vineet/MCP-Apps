@@ -31,7 +31,7 @@
         {
             "type": "RemoteMCPServer",
             "spec": {
-                "url": "https://flight-tracker-3000.inc1.devtunnels.ms/mcp",
+                "url": "https://knrz0t9g-3000.inc1.devtunnels.ms/mcp",
                 "mcp_tool_description": {
                     "file": "mcp-tools.json"
                 }
@@ -49,3 +49,4 @@
         }
     ]
 }
+

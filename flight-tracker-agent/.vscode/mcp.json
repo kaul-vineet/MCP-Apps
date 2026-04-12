@@ -4,7 +4,7 @@
     // Click on Start button to fetch tools from your server
     // Then, click the “ATK: Update Action with MCP” button from CodeLens to select the wanted tools from the prompt list.
     "joyfulcath": {
-			"url": "https://flight-tracker-3000.inc1.devtunnels.ms/mcp",
+			"url": "https://knrz0t9g-3000.inc1.devtunnels.ms/mcp",
 			"type": "http"
 		}
   }
