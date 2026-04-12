@@ -14,12 +14,12 @@
         "outline": "outline.png"
     },
     "name": {
-        "short": "Flight Tracker${{APP_NAME_SUFFIX}}",
-        "full": "Full name for Flight Tracker"
+        "short": "FlightDesk${{APP_NAME_SUFFIX}}",
+        "full": "FlightDesk"
     },
     "description": {
-        "short": "Short description for Flight Tracker",
-        "full": "Full description for Flight Tracker"
+        "short": "Real-time flight tracking and airport data",
+        "full": "FlightDesk provides real-time flight tracking, airport departures and arrivals, and live aircraft state powered by OpenSky Network."
     },
     "accentColor": "#FFFFFF",
     "composeExtensions": [],

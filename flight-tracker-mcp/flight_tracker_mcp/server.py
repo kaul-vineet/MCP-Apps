@@ -390,7 +390,7 @@ async def get_aircraft_track(icao24: str, time: int = 0) -> types.CallToolResult
     token = await get_opensky_token()
 
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=12.0) as client:
             resp = await client.get(
                 "https://opensky-network.org/api/tracks/all",
                 params={"icao24": icao24, "time": time},
